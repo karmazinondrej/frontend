@@ -319,7 +319,21 @@ describe("generateEnergyGasGraphData", () => {
         ([, temperature]) => temperature !== null
       )
     ).toHaveLength(1);
-    expect(line.symbol).toBe("circle");
+    // The theme hides symbols, so the series has to switch them on.
+    expect(line.showSymbol).toBe(true);
+    const symbol = line.symbol as (
+      value: unknown,
+      params: { dataIndex: number }
+    ) => string;
+    expect(
+      (line.data as [number, number | null][]).map((point, dataIndex) =>
+        symbol(point, { dataIndex })
+      )
+    ).toEqual(
+      (line.data as [number, number | null][]).map(([, temperature]) =>
+        temperature === null ? "none" : "circle"
+      )
+    );
   });
 
   it("draws the temperature where the gas sensor has no rows", () => {

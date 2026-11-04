@@ -265,6 +265,10 @@ function processHeating(
         bucketDegreeDays?.get(bucket.start),
       ]);
     }
+    const isIsolated = (index: number) =>
+      data[index][1] !== null &&
+      (data[index - 1]?.[1] ?? null) === null &&
+      (data[index + 1]?.[1] ?? null) === null;
     const series: LineSeriesOption = {
       id: (compare ? "compare-temperature-" : "temperature-") + statId,
       type: "line",
@@ -274,8 +278,11 @@ function processHeating(
         compare ? "--secondary-text-color" : "--primary-text-color"
       ),
       lineStyle: compare ? { width: 1.5, type: [7, 5] } : { width: 1.5 },
-      // A lone reading has no line to draw, so it gets a marker instead.
-      symbol: readingCount === 1 ? "circle" : "none",
+      // A reading between gaps has no line to draw, so it gets a marker. The
+      // chart theme hides symbols, so they are switched on for this series.
+      showSymbol: true,
+      symbol: (_value: unknown, params: { dataIndex: number }) =>
+        isIsolated(params.dataIndex) ? "circle" : "none",
       symbolSize: 8,
       z: 3,
       data,
