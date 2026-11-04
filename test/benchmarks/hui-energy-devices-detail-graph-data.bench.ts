@@ -115,6 +115,7 @@ const run = (data: EnergyData) =>
     config,
     computedStyles,
     now,
+    timeZone: "UTC",
     untrackedOrder: now.getTime(),
   });
 

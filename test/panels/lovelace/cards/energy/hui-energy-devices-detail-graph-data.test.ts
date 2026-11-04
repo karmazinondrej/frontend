@@ -65,6 +65,7 @@ const baseParams = {
   config,
   computedStyles,
   now,
+  timeZone: "UTC",
   untrackedOrder,
 } as const;
 

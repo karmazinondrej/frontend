@@ -26,6 +26,8 @@ export interface EnergyGasGraphDataParams {
   computedStyles: CSSStyleDeclaration;
   /** Current time, injected so the transform is deterministic. */
   now: Date;
+  /** Server time zone, which core aligns day and month buckets to. */
+  timeZone: string;
   /** Sums all gas sources into one series with this name. */
   combinedName?: string;
 }
@@ -56,7 +58,7 @@ export interface EnergyGasGraphData {
 export function generateEnergyGasGraphData(
   params: EnergyGasGraphDataParams
 ): EnergyGasGraphData {
-  const { energyData, computedStyles, now, combinedName } = params;
+  const { energyData, computedStyles, now, timeZone, combinedName } = params;
 
   const start = energyData.start;
   const end = energyData.end || now;
@@ -137,7 +139,7 @@ export function generateEnergyGasGraphData(
   fillDataGapsAndRoundCaps(
     datasets,
     true,
-    generateFillBuckets(datasets, start, end, period)
+    generateFillBuckets(datasets, start, end, period, timeZone)
   );
   const yAxisFractionDigits = computeYAxisFractionDigits(yMin, yMax, true);
   const chartData = datasets;

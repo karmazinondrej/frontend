@@ -1,4 +1,5 @@
 import { assert, describe, it } from "vitest";
+import { TZDate } from "@date-fns/tz";
 import type { BarSeriesOption, LineSeriesOption } from "echarts/charts";
 
 import {
@@ -662,7 +663,13 @@ describe("generateFillBuckets", () => {
   it("expands a single hourly bucket to the full day grid", () => {
     // Real bucket: 09:00-10:00 centered at 09:30
     const anchor = start.getTime() + 9.5 * HOUR;
-    const buckets = generateFillBuckets([barsAt([anchor])], start, end, "hour");
+    const buckets = generateFillBuckets(
+      [barsAt([anchor])],
+      start,
+      end,
+      "hour",
+      "UTC"
+    );
 
     assert.equal(buckets.length, 24);
     const sorted = [...buckets].sort((a, b) => a - b);
@@ -679,7 +686,13 @@ describe("generateFillBuckets", () => {
     // midpoints are on the whole hour. The grid must follow the data, not
     // the local-midnight range start.
     const anchor = start.getTime() + 10 * HOUR; // 09:30-10:30 bucket
-    const buckets = generateFillBuckets([barsAt([anchor])], start, end, "hour");
+    const buckets = generateFillBuckets(
+      [barsAt([anchor])],
+      start,
+      end,
+      "hour",
+      "UTC"
+    );
 
     const sorted = [...buckets].sort((a, b) => a - b);
     assert.equal(sorted[0], start.getTime());
@@ -695,7 +708,8 @@ describe("generateFillBuckets", () => {
       [barsAt([anchor])],
       start,
       shortEnd,
-      "5minute"
+      "5minute",
+      "UTC"
     );
 
     assert.equal(buckets.length, 12);
@@ -712,13 +726,52 @@ describe("generateFillBuckets", () => {
       [barsAt([anchor])],
       start,
       weekEnd,
-      "day"
+      "day",
+      "UTC"
     );
 
     assert.equal(buckets.length, 7);
     const sorted = [...buckets].sort((a, b) => a - b);
     assert.equal(sorted[0], start.getTime());
     assert.equal(sorted[6], start.getTime() + 6 * 24 * HOUR);
+  });
+
+  it("keeps day buckets on server midnight across a DST change", () => {
+    // Los Angeles leaves DST on 2026-11-01; core keeps bucketing at local
+    // midnight, so the grid must follow the zone, not the UTC-based test TZ.
+    const timeZone = "America/Los_Angeles";
+    const rangeStart = new Date("2026-10-25T07:00:00.000Z"); // Oct 25 00:00 PDT
+    const rangeEnd = new Date("2026-11-08T08:00:00.000Z"); // Nov 8 00:00 PST
+    const buckets = generateFillBuckets(
+      [barsAt([rangeStart.getTime()])],
+      rangeStart,
+      rangeEnd,
+      "day",
+      timeZone
+    );
+
+    assert.equal(buckets.length, 14);
+    assert.isTrue(
+      buckets.every((ts) => new TZDate(ts, timeZone).getHours() === 0),
+      "every bucket must start at local midnight"
+    );
+    assert.include(buckets, new Date("2026-11-02T08:00:00.000Z").getTime());
+  });
+
+  it("keeps month buckets on server midnight across a DST change", () => {
+    const timeZone = "America/Los_Angeles";
+    const yearStart = new Date("2026-01-01T08:00:00.000Z"); // Jan 1 00:00 PST
+    const yearEnd = new Date("2027-01-01T08:00:00.000Z");
+    const buckets = generateFillBuckets(
+      [barsAt([yearStart.getTime()])],
+      yearStart,
+      yearEnd,
+      "month",
+      timeZone
+    );
+
+    assert.equal(buckets.length, 12);
+    assert.include(buckets, new Date("2026-04-01T07:00:00.000Z").getTime()); // PDT
   });
 
   it("generates month buckets with variable month lengths", () => {
@@ -729,7 +782,8 @@ describe("generateFillBuckets", () => {
       [barsAt([anchor])],
       yearStart,
       yearEnd,
-      "month"
+      "month",
+      "UTC"
     );
 
     assert.equal(buckets.length, 12);
@@ -750,7 +804,8 @@ describe("generateFillBuckets", () => {
       ],
       start,
       end,
-      "hour"
+      "hour",
+      "UTC"
     );
 
     assert.include(buckets, mainAnchor);
@@ -766,7 +821,8 @@ describe("generateFillBuckets", () => {
       [barsAt([], "sensor.empty"), barsAt([anchor], "sensor.water")],
       start,
       end,
-      "hour"
+      "hour",
+      "UTC"
     );
 
     assert.equal(buckets.length, 24);
@@ -787,7 +843,8 @@ describe("generateFillBuckets", () => {
       ],
       start,
       end,
-      "hour"
+      "hour",
+      "UTC"
     );
 
     assert.equal(buckets.length, 24);
@@ -799,13 +856,14 @@ describe("generateFillBuckets", () => {
   });
 
   it("returns an empty grid when there is no data to anchor on", () => {
-    assert.deepEqual(generateFillBuckets([], start, end, "hour"), []);
+    assert.deepEqual(generateFillBuckets([], start, end, "hour", "UTC"), []);
     assert.deepEqual(
       generateFillBuckets(
         [barsAt([], "sensor.empty"), barsAt([], "compare-sensor.empty")],
         start,
         end,
-        "hour"
+        "hour",
+        "UTC"
       ),
       []
     );
@@ -823,7 +881,8 @@ describe("generateFillBuckets", () => {
       ],
       start,
       end,
-      "hour"
+      "hour",
+      "UTC"
     );
 
     assert.equal(buckets.length, 24);

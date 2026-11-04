@@ -279,6 +279,7 @@ export class HuiEnergySolarGraphCard
       forecasts,
       computedStyles: getComputedStyle(this),
       now: endOfToday(),
+      timeZone: this._hassConfig.time_zone,
       combineSources:
         this._config.combine_sources ?? energyData.combineSources ?? false,
     });

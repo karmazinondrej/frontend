@@ -35,6 +35,8 @@ export interface EnergySolarGraphDataParams {
   computedStyles: CSSStyleDeclaration;
   /** Fallback for `energyData.end` (the component uses `endOfToday()`). */
   now: Date;
+  /** Server time zone, which core aligns day and month buckets to. */
+  timeZone: string;
   combineSources?: boolean;
 }
 
@@ -58,7 +60,7 @@ export interface EnergySolarGraphData {
 export function generateEnergySolarGraphData(
   params: EnergySolarGraphDataParams
 ): EnergySolarGraphData {
-  const { energyData, forecasts, computedStyles, now } = params;
+  const { energyData, forecasts, computedStyles, now, timeZone } = params;
 
   const start = energyData.start;
   const end = energyData.end || now;
@@ -138,7 +140,13 @@ export function generateEnergySolarGraphData(
   fillDataGapsAndRoundCaps(
     datasets as BarSeriesOption[],
     true,
-    generateFillBuckets(datasets as BarSeriesOption[], start, end, period)
+    generateFillBuckets(
+      datasets as BarSeriesOption[],
+      start,
+      end,
+      period,
+      timeZone
+    )
   );
 
   if (forecasts) {

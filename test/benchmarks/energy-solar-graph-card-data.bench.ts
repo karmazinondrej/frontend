@@ -17,7 +17,13 @@ const computedStyles = createMockComputedStyle({
   "--primary-text-color": "#212121",
 });
 const { localize, states, formatEntityName } = createMockHass();
-const baseParams = { localize, states, formatEntityName, darkMode: false };
+const baseParams = {
+  localize,
+  states,
+  formatEntityName,
+  darkMode: false,
+  timeZone: "UTC",
+};
 
 const solarPrefs = (sources: number, forecast: boolean): EnergyPreferences => {
   const energySources: SolarSourceTypeEnergyPreference[] = [];
