@@ -2539,6 +2539,9 @@ export const getEnergyCsv = (
   // Degree days are a daily quantity, so hourly buckets carry none.
   const hourly = getSuggestedPeriod(state.start, state.end) === "hour";
   const exportedTemperatures = new Set<string>();
+  // Sources sharing a sensor can count degree days from different bases, so
+  // those rows are unique per sensor and base, which the unit names.
+  const exportedDegreeDays = new Set<string>();
   energy_sources
     .filter((s) => s.type === "gas")
     .forEach((source) => {
@@ -2549,43 +2552,52 @@ export const getEnergyCsv = (
       } = source as GasSourceTypeEnergyPreference;
       const readings =
         stat_outdoor_temperature && stats[stat_outdoor_temperature];
-      if (!readings || exportedTemperatures.has(stat_outdoor_temperature)) {
+      if (!readings) {
         return;
       }
-      exportedTemperatures.add(stat_outdoor_temperature);
       const buckets = mergeBuckets(
         stats[stat_energy_from] ?? [],
         hourly || getSuggestedPeriod(state.start, state.end) === "day"
           ? readings
           : []
       );
-      processCsvRow(
-        stat_outdoor_temperature,
-        "outdoor_temperature",
-        temperatureUnit,
-        [...meanTemperatureByBucket(readings, buckets)].map(
-          ([start, mean]) => ({
-            start,
-            end: NaN,
-            change: mean,
-          })
-        )
-      );
+      if (!exportedTemperatures.has(stat_outdoor_temperature)) {
+        exportedTemperatures.add(stat_outdoor_temperature);
+        processCsvRow(
+          stat_outdoor_temperature,
+          "outdoor_temperature",
+          temperatureUnit,
+          [...meanTemperatureByBucket(readings, buckets)].map(
+            ([start, mean]) => ({
+              start,
+              end: NaN,
+              change: mean,
+            })
+          )
+        );
+      }
       if (hourly) {
         return;
       }
+      const baseTemperature = convertCelsius(
+        heating_base_temperature ?? DEFAULT_HEATING_BASE_TEMPERATURE,
+        temperatureUnit
+      );
+      const baseLabel = `${Math.round(baseTemperature * 10) / 10} ${temperatureUnit}`;
+      const degreeDaysKey = `${stat_outdoor_temperature} ${baseLabel}`;
+      if (exportedDegreeDays.has(degreeDaysKey)) {
+        return;
+      }
+      exportedDegreeDays.add(degreeDaysKey);
       const degreeDays = degreeDaysByBucket(
         state.dailyTemperatureStats?.[stat_outdoor_temperature] ?? [],
         buckets,
-        convertCelsius(
-          heating_base_temperature ?? DEFAULT_HEATING_BASE_TEMPERATURE,
-          temperatureUnit
-        )
+        baseTemperature
       );
       processCsvRow(
         stat_outdoor_temperature,
         "heating_degree_days",
-        "degree days",
+        `degree days (base ${baseLabel})`,
         [...degreeDays].map(([start, value]) => ({
           start,
           end: NaN,
