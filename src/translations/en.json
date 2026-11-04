@@ -12305,6 +12305,16 @@
             "previous": "Previous",
             "next": "Next",
             "compare": "Compare data",
+            "compare_to_date": "Compare to date",
+            "granularity": "Granularity",
+            "granularity_automatic": "Automatic",
+            "granularities": {
+              "hour": "Hourly",
+              "day": "Daily",
+              "week": "Weekly",
+              "month": "Monthly",
+              "year": "Yearly"
+            },
             "combine_sources": "Combine sources",
             "download_data": "[%key:ui::panel::history::download_data%]"
           }

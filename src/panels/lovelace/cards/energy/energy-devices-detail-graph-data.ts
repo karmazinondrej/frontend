@@ -12,9 +12,9 @@ import type {
 import {
   computeConsumptionData,
   computeEnergyDeviceLabels,
-  getSuggestedPeriod,
   getSummedData,
 } from "../../../../data/energy";
+import type { EnergyGranularity } from "../../../../data/energy-granularity";
 import type { Statistics } from "../../../../data/recorder";
 import {
   calculateStatisticSumGrowth,
@@ -63,6 +63,7 @@ export interface EnergyDevicesDetailGraphData {
   end: Date;
   compareStart?: Date;
   compareEnd?: Date;
+  granularity: EnergyGranularity;
 }
 
 const getStatIdFromId = (id: string): string =>
@@ -77,6 +78,7 @@ interface ProcessContext {
   start: Date;
   end: Date;
   compareStart?: Date;
+  granularity: EnergyGranularity;
   untrackedOrder: number;
   deviceLabels: Record<string, string>;
 }
@@ -92,8 +94,12 @@ function processDataSet(
   compare = false
 ) {
   const data: BarSeriesOption[] = [];
-  const compareTransform = getCompareTransform(ctx.start, ctx.compareStart!);
-  const period = getSuggestedPeriod(ctx.start, ctx.end);
+  const period = ctx.granularity;
+  const compareTransform = getCompareTransform(
+    ctx.start,
+    ctx.compareStart!,
+    period
+  );
 
   // Lazily memoize a start -> change lookup per child stat so the per-point
   // child summation is O(1) instead of a linear `.find` scan. Mirrors the
@@ -227,8 +233,12 @@ function processUntracked(
         (totalDeviceConsumption[datapoint[2]] || 0) + datapoint[1];
     });
   });
-  const compareTransform = getCompareTransform(ctx.start, ctx.compareStart!);
-  const period = getSuggestedPeriod(ctx.start, ctx.end);
+  const period = ctx.granularity;
+  const compareTransform = getCompareTransform(
+    ctx.start,
+    ctx.compareStart!,
+    period
+  );
 
   // Split untracked into its positive part (genuine untracked consumption) and
   // its negative part (tracked devices over-reporting relative to the meter).
@@ -376,6 +386,7 @@ export function generateEnergyDevicesDetailGraphData(
     start,
     end,
     compareStart,
+    granularity: energyData.granularity,
     untrackedOrder,
     deviceLabels: computeEnergyDeviceLabels(
       states,
@@ -542,7 +553,7 @@ export function generateEnergyDevicesDetailGraphData(
   fillDataGapsAndRoundCaps(
     datasets,
     true,
-    generateFillBuckets(datasets, start, end, getSuggestedPeriod(start, end))
+    generateFillBuckets(datasets, start, end, energyData.granularity)
   );
   const yAxisFractionDigits = computeYAxisFractionDigits(yMin, yMax, true);
 
@@ -554,6 +565,7 @@ export function generateEnergyDevicesDetailGraphData(
     end,
     compareStart,
     compareEnd,
+    granularity: energyData.granularity,
   };
 }
 

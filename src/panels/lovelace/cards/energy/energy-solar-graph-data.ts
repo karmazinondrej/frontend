@@ -1,5 +1,7 @@
 import type { BarSeriesOption, LineSeriesOption } from "echarts/charts";
 import type { HassEntities } from "home-assistant-js-websocket";
+import { startOfWeek, startOfYear } from "date-fns";
+import type { WeekdayIndex } from "../../../../common/datetime/weekday";
 import type { LocalizeFunc } from "../../../../common/translations/localize";
 import { computeYAxisFractionDigits } from "../../../../components/chart/y-axis-fraction-digits";
 import type {
@@ -7,7 +9,7 @@ import type {
   EnergySolarForecasts,
   SolarSourceTypeEnergyPreference,
 } from "../../../../data/energy";
-import { getSuggestedPeriod } from "../../../../data/energy";
+import type { EnergyGranularity } from "../../../../data/energy-granularity";
 import type { Statistics, StatisticsMetaData } from "../../../../data/recorder";
 import { getStatisticLabel } from "../../../../data/recorder";
 import type { HomeAssistant } from "../../../../types";
@@ -35,6 +37,8 @@ export interface EnergySolarGraphDataParams {
   computedStyles: CSSStyleDeclaration;
   /** Fallback for `energyData.end` (the component uses `endOfToday()`). */
   now: Date;
+  /** First day of the week, for bucketing forecasts into weeks. */
+  weekStartsOn: WeekdayIndex;
   combineSources?: boolean;
 }
 
@@ -45,6 +49,7 @@ export interface EnergySolarGraphData {
   end: Date;
   compareStart?: Date;
   compareEnd?: Date;
+  granularity: EnergyGranularity;
   yAxisFractionDigits: number;
 }
 
@@ -81,11 +86,10 @@ export function generateEnergySolarGraphData(
         };
 
   // Both processDataSet calls below receive identical start/end/compareStart,
-  // so the compare transform and the suggested period are loop-invariant across
-  // them; compute each once instead of rebuilding the date-fns-heavy values per
-  // call.
-  const compareTransform = getCompareTransform(start, compareStart!);
-  const period = getSuggestedPeriod(start, end);
+  // so the compare transform is loop-invariant across them; compute it once
+  // instead of rebuilding the date-fns-heavy value per call.
+  const period = energyData.granularity;
+  const compareTransform = getCompareTransform(start, compareStart!, period);
 
   const datasets: (BarSeriesOption | LineSeriesOption)[] = [];
 
@@ -151,6 +155,7 @@ export function generateEnergySolarGraphData(
         computedStyles.getPropertyValue("--primary-text-color"),
         energyData.start,
         energyData.end,
+        period,
         trackY
       )
     );
@@ -163,6 +168,7 @@ export function generateEnergySolarGraphData(
     end,
     compareStart,
     compareEnd,
+    granularity: period,
     yAxisFractionDigits: computeYAxisFractionDigits(yMin, yMax, true),
   };
 }
@@ -218,7 +224,7 @@ function processTotal(
 function processDataSet(
   { localize, states, formatEntityName, darkMode }: EnergySolarGraphDataParams,
   compareTransform: (ts: Date) => Date,
-  period: "5minute" | "hour" | "day" | "month",
+  period: EnergyGranularity,
   statistics: Statistics,
   statisticsMetaData: Record<string, StatisticsMetaData>,
   solarSources: SolarSourceTypeEnergyPreference[],
@@ -232,7 +238,7 @@ function processDataSet(
   const midpointTransform = compare ? compareTransform : undefined;
   // `period` is fixed for the whole call, so resolve the midpoint mode once
   // instead of re-deriving it (and re-comparing the period string) per point.
-  const center = period === "hour" || period === "5minute";
+  const center = period === "hour";
 
   solarSources.forEach((source, idx) => {
     let prevStart: number | null = null;
@@ -322,24 +328,46 @@ function processDataSet(
   return data;
 }
 
+/** Start of the chart bucket (in the browser time zone) containing a date. */
+function floorToBucket(
+  date: Date,
+  period: EnergyGranularity,
+  weekStartsOn: WeekdayIndex
+): Date {
+  if (period === "hour") {
+    date.setMinutes(0, 0, 0);
+    return date;
+  }
+  if (period === "week") {
+    return startOfWeek(date, { weekStartsOn });
+  }
+  if (period === "year") {
+    return startOfYear(date);
+  }
+  if (period === "month") {
+    date.setDate(1);
+  }
+  date.setHours(0, 0, 0, 0);
+  return date;
+}
+
 function processForecast(
-  { localize, states, formatEntityName }: EnergySolarGraphDataParams,
+  {
+    localize,
+    states,
+    formatEntityName,
+    weekStartsOn,
+  }: EnergySolarGraphDataParams,
   statisticsMetaData: Record<string, StatisticsMetaData>,
   forecasts: EnergySolarForecasts,
   solarSources: SolarSourceTypeEnergyPreference[],
   borderColor: string,
   start: Date,
   end: Date | undefined,
+  period: EnergyGranularity,
   trackY: (v: number) => void
 ) {
   const data: LineSeriesOption[] = [];
-
-  // Recompute the period here intentionally — do NOT reuse the hoisted period
-  // from the entry function. processForecast receives the raw `energyData.end`
-  // (which may be undefined) whereas the entry function uses `energyData.end ||
-  // now`, so the two periods can legitimately differ; collapsing them would
-  // change the forecast hour-flooring near an undefined end.
-  const period = getSuggestedPeriod(start, end);
 
   // Process solar forecast data.
   solarSources.forEach((source) => {
@@ -355,15 +383,7 @@ function processForecast(
           if (dateObj < start || (end && dateObj > end)) {
             return;
           }
-          if (period === "month") {
-            dateObj.setDate(1);
-          }
-          if (period === "month" || period === "day") {
-            dateObj.setHours(0, 0, 0, 0);
-          } else {
-            dateObj.setMinutes(0, 0, 0);
-          }
-          const time = dateObj.getTime();
+          const time = floorToBucket(dateObj, period, weekStartsOn).getTime();
           if (time in forecastsData) {
             forecastsData[time] += value;
           } else {

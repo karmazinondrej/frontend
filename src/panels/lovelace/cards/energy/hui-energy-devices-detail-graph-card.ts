@@ -25,6 +25,7 @@ import {
   validateEnergyCollectionKey,
 } from "../../../../data/energy";
 import { EnergyCollectionController } from "../../../../data/energy-collection-controller";
+import type { EnergyGranularity } from "../../../../data/energy-granularity";
 import { isExternalStatistic } from "../../../../data/recorder";
 import type { HASSDomEvent } from "../../../../common/dom/fire_event";
 import { fireEvent } from "../../../../common/dom/fire_event";
@@ -90,6 +91,8 @@ export class HuiEnergyDevicesDetailGraphCard
   @state() private _compareStart?: Date;
 
   @state() private _compareEnd?: Date;
+
+  @state() private _granularity: EnergyGranularity = "hour";
 
   @state()
   @storage({
@@ -177,6 +180,7 @@ export class HuiEnergyDevicesDetailGraphCard
               this._end,
               this._i18n.locale,
               this._hassConfig,
+              this._granularity,
               UNIT,
               this._compareStart,
               this._compareEnd,
@@ -239,6 +243,7 @@ export class HuiEnergyDevicesDetailGraphCard
       end: Date,
       locale: FrontendLocaleData,
       config: HassConfig,
+      granularity: EnergyGranularity,
       unit: string | undefined,
       compareStart: Date | undefined,
       compareEnd: Date | undefined,
@@ -250,6 +255,7 @@ export class HuiEnergyDevicesDetailGraphCard
         end,
         locale,
         config,
+        granularity,
         unit,
         compareStart,
         compareEnd,
@@ -324,6 +330,7 @@ export class HuiEnergyDevicesDetailGraphCard
       end,
       compareStart,
       compareEnd,
+      granularity,
     } = generateEnergyDevicesDetailGraphData({
       localize: this._i18n.localize,
       locale: this._i18n.locale,
@@ -341,6 +348,7 @@ export class HuiEnergyDevicesDetailGraphCard
     this._end = end;
     this._compareStart = compareStart;
     this._compareEnd = compareEnd;
+    this._granularity = granularity;
     this._legendData = legendData;
     this._yAxisFractionDigits = yAxisFractionDigits;
     this._chartData = chartData;

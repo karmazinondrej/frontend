@@ -24,11 +24,9 @@ import type {
   EnergyData,
   WaterSourceTypeEnergyPreference,
 } from "../../../../data/energy";
-import {
-  getSuggestedPeriod,
-  validateEnergyCollectionKey,
-} from "../../../../data/energy";
+import { validateEnergyCollectionKey } from "../../../../data/energy";
 import { EnergyCollectionController } from "../../../../data/energy-collection-controller";
+import type { EnergyGranularity } from "../../../../data/energy-granularity";
 import type { Statistics, StatisticsMetaData } from "../../../../data/recorder";
 import { getStatisticLabel } from "../../../../data/recorder";
 import type { FrontendLocaleData } from "../../../../data/translation";
@@ -95,6 +93,8 @@ export class HuiEnergyWaterGraphCard
   @state() private _compareStart?: Date;
 
   @state() private _compareEnd?: Date;
+
+  @state() private _granularity: EnergyGranularity = "hour";
 
   @state() private _unit?: string;
 
@@ -191,6 +191,7 @@ export class HuiEnergyWaterGraphCard
               this._end,
               this._i18n.locale,
               this._hassConfig,
+              this._granularity,
               this._unit,
               this._compareStart,
               this._compareEnd,
@@ -230,6 +231,7 @@ export class HuiEnergyWaterGraphCard
       end: Date,
       locale: FrontendLocaleData,
       config: HassConfig,
+      granularity: EnergyGranularity,
       unit: string | undefined,
       compareStart: Date | undefined,
       compareEnd: Date | undefined,
@@ -240,6 +242,7 @@ export class HuiEnergyWaterGraphCard
         end,
         locale,
         config,
+        granularity,
         unit,
         compareStart,
         compareEnd,
@@ -255,6 +258,7 @@ export class HuiEnergyWaterGraphCard
 
     this._compareStart = energyData.startCompare;
     this._compareEnd = energyData.endCompare;
+    this._granularity = energyData.granularity;
 
     const waterSources: WaterSourceTypeEnergyPreference[] =
       energyData.prefs.energy_sources.filter(
@@ -329,12 +333,7 @@ export class HuiEnergyWaterGraphCard
     fillDataGapsAndRoundCaps(
       datasets,
       true,
-      generateFillBuckets(
-        datasets,
-        this._start,
-        this._end,
-        getSuggestedPeriod(this._start, this._end)
-      )
+      generateFillBuckets(datasets, this._start, this._end, this._granularity)
     );
     this._yAxisFractionDigits = computeYAxisFractionDigits(yMin, yMax, true);
     this._chartData = datasets;
@@ -367,11 +366,12 @@ export class HuiEnergyWaterGraphCard
     compare = false
   ) {
     const data: BarSeriesOption[] = [];
+    const period = this._granularity;
     const compareTransform = getCompareTransform(
       this._start,
-      this._compareStart!
+      this._compareStart!,
+      period
     );
-    const period = getSuggestedPeriod(this._start, this._end);
 
     waterSources.forEach((source, idx) => {
       let prevStart: number | null = null;

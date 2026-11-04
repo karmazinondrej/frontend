@@ -26,6 +26,7 @@ import {
 } from "../common/datetime/calc_date";
 import type { DateRange } from "../common/datetime/calc_date_range";
 import { calcDateRange } from "../common/datetime/calc_date_range";
+import { firstWeekdayIndex } from "../common/datetime/first_weekday";
 import { computeAreaName } from "../common/entity/compute_area_name";
 import { getEntityAreaId } from "../common/entity/context/get_entity_context";
 import type { EntityNameItem } from "../common/entity/entity_name_config";
@@ -34,6 +35,16 @@ import { normalizeValueBySIPrefix } from "../common/number/normalize-by-si-prefi
 import { groupBy } from "../common/util/group-by";
 import type { HomeAssistant, HomeAssistantRegistries } from "../types";
 import { fileDownload } from "../util/file_download";
+import type {
+  EnergyFetchPeriod,
+  EnergyGranularity,
+} from "./energy-granularity";
+import {
+  getEnergyFetchPeriod,
+  rebucketFossilEnergyConsumption,
+  rebucketStatistics,
+  resolveEnergyGranularity,
+} from "./energy-granularity";
 import type {
   StatisticPeriod,
   Statistics,
@@ -314,7 +325,7 @@ export const getFossilEnergyConsumption = async (
   energy_statistic_ids: string[],
   co2_statistic_id: string,
   endTime?: Date,
-  period: "5minute" | "hour" | "day" | "month" = "hour"
+  period: "5minute" | EnergyFetchPeriod = "hour"
 ) =>
   callWS<FossilEnergyConsumption>({
     type: "energy/fossil_energy_consumption",
@@ -419,9 +430,12 @@ export const computeEnergyDeviceLabels = (
 export interface EnergyData {
   start: Date;
   end?: Date;
+  /** Bucket size of `stats`, `statsCompare` and `fossilEnergyConsumption`. */
+  granularity: EnergyGranularity;
   startCompare?: Date;
   endCompare?: Date;
   compareMode?: CompareMode;
+  compareToDate?: boolean;
   combineSources?: boolean;
   prefs: EnergyPreferences;
   info: EnergyInfo;
@@ -569,14 +583,23 @@ const getStatisticsRange = (
         end && shiftToServerTimeZone(end, locale, config),
       ];
 
+interface EnergySelection {
+  start: Date;
+  end?: Date;
+  compare?: CompareMode;
+  /** Caps the comparison at the same point in time of the previous period. */
+  compareToDate?: boolean;
+  /** Bucket size of the charts; automatic when not set. */
+  granularity?: EnergyGranularity;
+}
+
 const getEnergyData = async (
   options: EnergyCollectionOptions,
   prefs: EnergyPreferences,
-  start: Date,
-  end?: Date,
-  compare?: CompareMode
+  selection: EnergySelection
 ): Promise<EnergyData> => {
   const { callWS, entities, states, locale, config } = options;
+  const { start, end, compare, compareToDate } = selection;
   const info = await getEnergyInfo(callWS);
 
   let co2SignalEntity: string | undefined;
@@ -614,9 +637,16 @@ const getEnergyData = async (
 
   const allStatIDs = [...energyStatIds, ...waterStatIds, ...powerStatIds];
 
-  const dayDifference = differenceInDays(end || new Date(), start);
+  const now = new Date();
+  const dayDifference = differenceInDays(end || now, start);
 
-  const period = getSuggestedPeriod(start, end);
+  const granularity = resolveEnergyGranularity(
+    selection.granularity,
+    getSuggestedPeriod(start, end),
+    start,
+    end
+  );
+  const period = getEnergyFetchPeriod(granularity);
   const finePeriod = getSuggestedPeriod(start, end, true);
   const [periodStart, periodEnd] = getStatisticsRange(
     locale,
@@ -740,49 +770,42 @@ const getEnergyData = async (
   let _waterStatsCompare: Statistics | Promise<Statistics> = {};
   let _gasEnergyStatsCompare: Statistics | Promise<Statistics> = {};
   if (compare) {
-    if (compare === CompareMode.PREVIOUS) {
-      if (
-        (calcDateProperty(
+    let shiftToCompare: (date: Date) => Date;
+    if (compare === CompareMode.YOY) {
+      shiftToCompare = (date) => calcDate(date, addYears, locale, config, -1);
+    } else if (
+      (calcDateProperty(start, isFirstDayOfMonth, locale, config) as boolean) &&
+      (calcDateProperty(
+        end || now,
+        isLastDayOfMonth,
+        locale,
+        config
+      ) as boolean)
+    ) {
+      // When comparing a month (or multiple), we want to start at the beginning of the month
+      const months =
+        (calcDateDifferenceProperty(
+          end || now,
           start,
-          isFirstDayOfMonth,
+          differenceInMonths,
           locale,
           config
-        ) as boolean) &&
-        (calcDateProperty(
-          end || new Date(),
-          isLastDayOfMonth,
-          locale,
-          config
-        ) as boolean)
-      ) {
-        // When comparing a month (or multiple), we want to start at the beginning of the month
-        startCompare = calcDate(
-          start,
-          addMonths,
-          locale,
-          config,
-          -(calcDateDifferenceProperty(
-            end || new Date(),
-            start,
-            differenceInMonths,
-            locale,
-            config
-          ) as number) - 1
-        );
-      } else {
-        startCompare = calcDate(
-          start,
-          addDays,
-          locale,
-          config,
-          (dayDifference + 1) * -1
-        );
-      }
-      endCompare = addMilliseconds(start, -1);
-    } else if (compare === CompareMode.YOY) {
-      startCompare = calcDate(start, addYears, locale, config, -1);
-      endCompare = calcDate(end!, addYears, locale, config, -1);
+        ) as number) + 1;
+      shiftToCompare = (date) =>
+        calcDate(date, addMonths, locale, config, -months);
+    } else {
+      shiftToCompare = (date) =>
+        calcDate(date, addDays, locale, config, -(dayDifference + 1));
     }
+    startCompare = shiftToCompare(start);
+    // A period that is still running is compared with the elapsed part of the
+    // previous one, so the totals cover the same amount of time.
+    endCompare =
+      compareToDate && (!end || end > now)
+        ? shiftToCompare(now)
+        : compare === CompareMode.YOY
+          ? shiftToCompare(end!)
+          : addMilliseconds(start, -1);
     [periodStartCompare, periodEndCompare] = getStatisticsRange(
       locale,
       config,
@@ -903,34 +926,60 @@ const getEnergyData = async (
     });
   }
 
+  // Power stays at its own fine period; only the energy buckets are coarsened.
+  const weekStartsOn = firstWeekdayIndex(locale);
   const stats = {
-    ...energyStats,
-    ...gasEnergyStats,
-    ...waterStats,
+    ...rebucketStatistics(
+      { ...energyStats, ...gasEnergyStats, ...waterStats },
+      granularity,
+      config,
+      weekStartsOn
+    ),
     ...powerStats,
   };
   if (compare) {
-    statsCompare = {
-      ...energyStatsCompare,
-      ...gasEnergyStatsCompare,
-      ...waterStatsCompare,
-    };
+    statsCompare = rebucketStatistics(
+      {
+        ...energyStatsCompare,
+        ...gasEnergyStatsCompare,
+        ...waterStatsCompare,
+      },
+      granularity,
+      config,
+      weekStartsOn
+    );
   }
 
   const data: EnergyData = {
     start,
     end,
+    granularity,
     startCompare,
     endCompare,
     compareMode: compare,
+    compareToDate,
     info,
     prefs,
     stats,
     statsMetadata,
     statsCompare,
     co2SignalEntity,
-    fossilEnergyConsumption,
-    fossilEnergyConsumptionCompare,
+    fossilEnergyConsumption:
+      fossilEnergyConsumption &&
+      rebucketFossilEnergyConsumption(
+        fossilEnergyConsumption,
+        granularity,
+        config,
+        weekStartsOn
+      ),
+    fossilEnergyConsumptionCompare:
+      fossilEnergyConsumptionCompare &&
+      rebucketFossilEnergyConsumption(
+        fossilEnergyConsumptionCompare,
+        granularity,
+        config,
+        weekStartsOn
+      ),
     waterUnit,
     gasUnit,
   };
@@ -946,11 +995,16 @@ export interface EnergyCollection extends Omit<
   start: Date;
   end?: Date;
   compare?: CompareMode;
+  compareToDate?: boolean;
+  /** The picked bucket size; automatic when not set. */
+  granularity?: EnergyGranularity;
   combineSources?: boolean;
   prefs?: EnergyPreferences;
   clearPrefs(): void;
   setPeriod(newStart: Date, newEnd?: Date): void;
   setCompare(compare: CompareMode): void;
+  setCompareToDate(compareToDate: boolean): void;
+  setGranularity(granularity?: EnergyGranularity): void;
   setCombineSources(combine: boolean): void;
   setDefaultCombineSources(combine: boolean): void;
   isActive(): boolean;
@@ -1046,6 +1100,22 @@ export const getEnergyCombineSourcesStorageKey = (
 ): string => {
   const [key] = convertCollectionKeyToConnection(panelUrl, collectionKey);
   return `energy-combine-sources-${key}`;
+};
+
+export const getEnergyGranularityStorageKey = (
+  panelUrl: string,
+  collectionKey?: string
+): string => {
+  const [key] = convertCollectionKeyToConnection(panelUrl, collectionKey);
+  return `energy-granularity-${key}`;
+};
+
+export const getEnergyCompareToDateStorageKey = (
+  panelUrl: string,
+  collectionKey?: string
+): string => {
+  const [key] = convertCollectionKeyToConnection(panelUrl, collectionKey);
+  return `energy-compare-to-date-${key}`;
 };
 
 export const hasCombinableEnergySources = (
@@ -1207,6 +1277,14 @@ export const getEnergyDataCollection = (
     options.key
   );
   const storedCombineSources = localStorage.getItem(combineSourcesStorageKey);
+  const granularityStorageKey = getEnergyGranularityStorageKey(
+    panelUrl,
+    options.key
+  );
+  const compareToDateStorageKey = getEnergyCompareToDateStorageKey(
+    panelUrl,
+    options.key
+  );
   // True while tracking today (or hour-0 yesterday), rather than a custom range.
   let followLiveDay = preferredPeriod === "today";
 
@@ -1221,7 +1299,7 @@ export const getEnergyDataCollection = (
     const requestRevision = ++revision;
     pendingRevision = requestRevision;
     const requestSelectionRevision = selectionRevision;
-    const { start, end, compare } = collection;
+    const { start, end, compare, compareToDate, granularity } = collection;
     let prefs = collection.prefs;
     let data: EnergyData;
     let prefsNotFound = false;
@@ -1245,7 +1323,13 @@ export const getEnergyDataCollection = (
       }
       data = prefsNotFound
         ? ({ prefs, start, end } as EnergyData)
-        : await getEnergyData(options, prefs, start, end, compare);
+        : await getEnergyData(options, prefs, {
+            start,
+            end,
+            compare,
+            compareToDate,
+            granularity,
+          });
     } catch (err) {
       if (requestRevision === revision) {
         throw err;
@@ -1412,6 +1496,10 @@ export const getEnergyDataCollection = (
         : storedCombineSources === "false"
           ? false
           : undefined,
+    compareToDate: localStorage.getItem(compareToDateStorageKey) === "true",
+    granularity:
+      (localStorage.getItem(granularityStorageKey) as EnergyGranularity) ||
+      undefined,
     prefs: options.prefs,
     _active: 0,
     isActive: () => !!collection._active,
@@ -1446,6 +1534,26 @@ export const getEnergyDataCollection = (
         revision++;
         selectionRevision++;
         collection.compare = compare;
+      }
+    },
+    setCompareToDate(compareToDate: boolean) {
+      if (collection.compareToDate !== compareToDate) {
+        revision++;
+        selectionRevision++;
+        collection.compareToDate = compareToDate;
+        localStorage.setItem(compareToDateStorageKey, String(compareToDate));
+      }
+    },
+    setGranularity(granularity?: EnergyGranularity) {
+      if (collection.granularity !== granularity) {
+        revision++;
+        selectionRevision++;
+        collection.granularity = granularity;
+        if (granularity) {
+          localStorage.setItem(granularityStorageKey, granularity);
+        } else {
+          localStorage.removeItem(granularityStorageKey);
+        }
       }
     },
     setCombineSources(combine: boolean) {
@@ -2246,6 +2354,16 @@ export const formatPowerShort = (
   });
 };
 
+/** Automatic bucket size for a period; `fine` picks the one for power. */
+export function getSuggestedPeriod(
+  start: Date,
+  end?: Date
+): "hour" | "day" | "month";
+export function getSuggestedPeriod(
+  start: Date,
+  end: Date | undefined,
+  fine: true
+): "5minute" | "hour" | "day";
 export function getSuggestedPeriod(
   start: Date,
   end?: Date,

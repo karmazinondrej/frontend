@@ -7,6 +7,7 @@ exports[`generateEnergyDevicesDetailGraphData > large month-of-hourly digest is 
     "compareEnd",
     "compareStart",
     "end",
+    "granularity",
     "legendData",
     "start",
     "yAxisFractionDigits",
@@ -24,6 +25,7 @@ exports[`generateEnergyDevicesDetailGraphData > large month-of-hourly digest is 
     "compareEnd",
     "compareStart",
     "end",
+    "granularity",
     "legendData",
     "start",
     "yAxisFractionDigits",
@@ -14633,6 +14635,7 @@ exports[`generateEnergyDevicesDetailGraphData > matches snapshot for 5minute per
   "compareEnd": undefined,
   "compareStart": undefined,
   "end": 2024-01-02T00:00:00.000Z,
+  "granularity": "hour",
   "legendData": [
     {
       "id": "sensor.grid_consumption-0",
@@ -16044,6 +16047,7 @@ exports[`generateEnergyDevicesDetailGraphData > matches snapshot for a small hou
   "compareEnd": undefined,
   "compareStart": undefined,
   "end": 2024-01-02T00:00:00.000Z,
+  "granularity": "hour",
   "legendData": [
     {
       "id": "sensor.grid_consumption-0",
@@ -16605,6 +16609,7 @@ exports[`generateEnergyDevicesDetailGraphData > matches snapshot for daily perio
   "compareEnd": undefined,
   "compareStart": undefined,
   "end": 2024-01-08T00:00:00.000Z,
+  "granularity": "day",
   "legendData": [
     {
       "id": "sensor.solar_production-0",
@@ -18227,6 +18232,7 @@ exports[`generateEnergyDevicesDetailGraphData > matches snapshot with child devi
   "compareEnd": undefined,
   "compareStart": undefined,
   "end": 2024-01-02T00:00:00.000Z,
+  "granularity": "hour",
   "legendData": [
     {
       "id": "sensor.battery_charge-0",
@@ -23029,6 +23035,7 @@ exports[`generateEnergyDevicesDetailGraphData > matches snapshot with compare da
   "compareEnd": undefined,
   "compareStart": undefined,
   "end": 2024-01-02T00:00:00.000Z,
+  "granularity": "hour",
   "legendData": [
     {
       "id": "sensor.grid_consumption-0",
@@ -24216,6 +24223,7 @@ exports[`generateEnergyDevicesDetailGraphData > respects max_devices config 1`] 
   "compareEnd": undefined,
   "compareStart": undefined,
   "end": 2024-01-02T00:00:00.000Z,
+  "granularity": "hour",
   "legendData": [
     {
       "id": "sensor.solar_production-0",

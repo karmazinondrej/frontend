@@ -21,6 +21,7 @@ import type { EnergyData } from "../../../../data/energy";
 import {
   validateEnergyCollectionKey,
   formatPowerShort,
+  getSuggestedPeriod,
 } from "../../../../data/energy";
 import { EnergyCollectionController } from "../../../../data/energy-collection-controller";
 import type { FrontendLocaleData } from "../../../../data/translation";
@@ -251,6 +252,7 @@ export class HuiPowerSourcesGraphCard
         end,
         locale,
         config,
+        getSuggestedPeriod(start, end, true),
         "kW",
         compareStart,
         compareEnd,

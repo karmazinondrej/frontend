@@ -6,7 +6,7 @@ import type {
   EnergyData,
   GasSourceTypeEnergyPreference,
 } from "../../../../data/energy";
-import { getSuggestedPeriod } from "../../../../data/energy";
+import type { EnergyGranularity } from "../../../../data/energy-granularity";
 import type { Statistics, StatisticsMetaData } from "../../../../data/recorder";
 import { getStatisticLabel } from "../../../../data/recorder";
 import type { HomeAssistant } from "../../../../types";
@@ -41,6 +41,7 @@ export interface EnergyGasGraphData {
   end: Date;
   compareStart?: Date;
   compareEnd?: Date;
+  granularity: EnergyGranularity;
   unit?: string;
   total?: number;
   yAxisFractionDigits: number;
@@ -92,8 +93,8 @@ export function generateEnergyGasGraphData(
   // which are identical for both the compare and main passes. Compute them
   // once here instead of recomputing (and re-allocating the transform
   // closure) inside each processDataSet call.
-  const compareTransform = getCompareTransform(start, compareStart!);
-  const period = getSuggestedPeriod(start, end);
+  const period = energyData.granularity;
+  const compareTransform = getCompareTransform(start, compareStart!, period);
 
   if (energyData.statsCompare) {
     datasets.push(
@@ -149,6 +150,7 @@ export function generateEnergyGasGraphData(
     end,
     compareStart,
     compareEnd,
+    granularity: period,
     unit,
     total,
     yAxisFractionDigits,
@@ -175,7 +177,7 @@ function processTotal(
 function processDataSet(
   { states, formatEntityName, darkMode }: EnergyGasGraphDataParams,
   compareTransform: (ts: Date) => Date,
-  period: ReturnType<typeof getSuggestedPeriod>,
+  period: EnergyGranularity,
   statistics: Statistics,
   statisticsMetaData: Record<string, StatisticsMetaData>,
   gasSources: GasChartSource[],
@@ -192,7 +194,7 @@ function processDataSet(
   // `center` recompute and a per-point `compare ? … : undefined` ternary in the
   // hottest loop. The arithmetic and addition order are kept identical so the
   // resulting timestamps are bit-identical to computeStatMidpoint.
-  const center = period === "hour" || period === "5minute";
+  const center = period === "hour";
   const transform = compare ? compareTransform : undefined;
 
   gasSources.forEach((source, idx) => {

@@ -24,7 +24,13 @@ const computedStyles = createMockComputedStyle({
 });
 
 const { localize, states, formatEntityName } = createMockHass();
-const baseParams = { localize, states, formatEntityName, darkMode: false };
+const baseParams = {
+  localize,
+  states,
+  formatEntityName,
+  darkMode: false,
+  weekStartsOn: 1 as const,
+};
 
 const now = new Date(FIXED_EPOCH_MS + dayMs);
 

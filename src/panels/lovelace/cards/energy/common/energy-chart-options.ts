@@ -6,14 +6,17 @@ import {
   differenceInDays,
   differenceInMonths,
   differenceInCalendarMonths,
+  differenceInCalendarYears,
   differenceInYears,
   startOfYear,
   addMilliseconds,
   startOfMonth,
+  startOfWeek,
   addYears,
   addMonths,
   addMinutes,
   addHours,
+  addWeeks,
   startOfDay,
   addDays,
   subDays,
@@ -30,12 +33,15 @@ import {
   formatNumber,
   formatNumberWithUnit,
 } from "../../../../../common/number/format_number";
+import { calcDate } from "../../../../../common/datetime/calc_date";
+import { firstWeekdayIndex } from "../../../../../common/datetime/first_weekday";
 import {
   formatDateMonthYear,
   formatDateShort,
   formatDateVeryShort,
   formatDateWeekdayShortDate,
   formatDateWeekdayVeryShortDate,
+  formatDateYear,
 } from "../../../../../common/datetime/format_date";
 import { formatTime } from "../../../../../common/datetime/format_time";
 import type { HaECOption } from "../../../../../resources/echarts/echarts";
@@ -43,7 +49,6 @@ import type { StatisticPeriod } from "../../../../../data/recorder";
 import { getPeriodicAxisLabelConfig } from "../../../../../components/chart/axis-label";
 import { createYAxisPrecisionBounds } from "../../../../../components/chart/y-axis-fraction-digits";
 import "../../../../../components/chart/ha-chart-tooltip-marker";
-import { getSuggestedPeriod } from "../../../../../data/energy";
 
 export { fillDataGapsAndRoundCaps } from "../../../../../components/chart/round-caps";
 
@@ -59,8 +64,13 @@ export type EnergyDataPoint = [
   originalStart: number,
 ];
 
-// Number of days of padding when showing time axis in months
-const MONTH_TIME_AXIS_PADDING = 5;
+// Bars sit on their bucket start, so coarse axes get padding (in days) on
+// both sides to keep the first and last bar inside the chart.
+const COARSE_AXIS_PADDING: Record<"week" | "month" | "year", number> = {
+  week: 1,
+  month: 5,
+  year: 30,
+};
 
 export function getSuggestedMax(
   period: StatisticPeriod,
@@ -94,7 +104,10 @@ export function getSuggestedMax(
   if (period === "day" || period === "week") {
     return suggestedMax;
   }
-  // period === month
+  if (period === "year") {
+    suggestedMax.setMonth(0);
+  }
+  // period === month or year
   suggestedMax.setDate(1);
   return suggestedMax;
 }
@@ -117,16 +130,16 @@ export function getCommonOptions(
   end: Date,
   locale: FrontendLocaleData,
   config: HassConfig,
+  period: StatisticPeriod,
   unit?: string,
   compareStart?: Date,
   compareEnd?: Date,
   formatTotal?: (total: number) => string,
-  detailedDailyData = false,
+  noRounding = false,
   yAxisFractionDigits = 1,
   getSeriesArea?: (seriesId: string) => string | undefined
 ): HaECOption {
-  const suggestedPeriod = getSuggestedPeriod(start, end, detailedDailyData);
-  let suggestedMax = getSuggestedMax(suggestedPeriod, end, detailedDailyData);
+  let suggestedMax = getSuggestedMax(period, end, noRounding);
 
   const compare = compareStart !== undefined && compareEnd !== undefined;
   const showCompareYear =
@@ -142,39 +155,21 @@ export function getCommonOptions(
   if (compare) {
     const transformedCompareEnd = getCompareTransform(
       start,
-      compareStart
+      compareStart,
+      period
     )(compareEnd);
     if (transformedCompareEnd.getTime() > suggestedMax.getTime()) {
-      suggestedMax = getSuggestedMax(
-        suggestedPeriod,
-        transformedCompareEnd,
-        detailedDailyData
-      );
+      suggestedMax = getSuggestedMax(period, transformedCompareEnd, noRounding);
     }
   }
 
-  const monthTimeAxis: HaECOption = {
-    xAxis: {
-      type: "time",
-      min: subDays(start, MONTH_TIME_AXIS_PADDING),
-      max: addDays(suggestedMax, MONTH_TIME_AXIS_PADDING),
-      axisLabel: getPeriodicAxisLabelConfig("month", locale, config),
-      // For shorter month ranges, force splitting to ensure time axis renders
-      // as whole month intervals. Limit the number of forced ticks to 6 months
-      // (so a max calendar difference of 5) to reduce clutter.
-      splitNumber: Math.min(differenceInCalendarMonths(end, start), 5),
-    },
-  };
-  const normalTimeAxis: HaECOption = {
-    xAxis: {
-      type: "time",
-      min: start,
-      max: suggestedMax,
-    },
-  };
+  const xAxis: HaECOption["xAxis"] =
+    period === "week" || period === "month" || period === "year"
+      ? getCoarseTimeAxis(period, start, end, suggestedMax, locale, config)
+      : { type: "time", min: start, max: suggestedMax };
 
   const options: HaECOption = {
-    ...(suggestedPeriod === "month" ? monthTimeAxis : normalTimeAxis),
+    xAxis,
     yAxis: {
       type: "value",
       name: unit,
@@ -225,7 +220,7 @@ export function getCommonOptions(
                 items,
                 locale,
                 config,
-                suggestedPeriod,
+                period,
                 compare,
                 showCompareYear,
                 unit,
@@ -244,7 +239,7 @@ export function getCommonOptions(
           [params],
           locale,
           config,
-          suggestedPeriod,
+          period,
           compare,
           showCompareYear,
           unit,
@@ -257,11 +252,53 @@ export function getCommonOptions(
   return options;
 }
 
+/**
+ * Axis for buckets of whole weeks, months or years. The range is widened to
+ * the bucket boundaries so a bucket that starts before the period still shows.
+ */
+function getCoarseTimeAxis(
+  period: "week" | "month" | "year",
+  start: Date,
+  end: Date,
+  suggestedMax: Date,
+  locale: FrontendLocaleData,
+  config: HassConfig
+): HaECOption["xAxis"] {
+  const padding = COARSE_AXIS_PADDING[period];
+  const weekStartsOn = firstWeekdayIndex(locale);
+  const bucketStart = (date: Date) =>
+    period === "week"
+      ? calcDate(date, startOfWeek, locale, config, { weekStartsOn })
+      : period === "month"
+        ? calcDate(date, startOfMonth, locale, config)
+        : calcDate(date, startOfYear, locale, config);
+  // Force splitting for short ranges so ticks land on whole buckets, limited
+  // to 6 ticks (so a max difference of 5) to reduce clutter.
+  const splitNumber =
+    period === "week"
+      ? undefined
+      : Math.min(
+          period === "month"
+            ? differenceInCalendarMonths(end, start)
+            : differenceInCalendarYears(end, start),
+          5
+        );
+  return {
+    type: "time",
+    min: subDays(bucketStart(start), padding),
+    max: addDays(bucketStart(suggestedMax), padding),
+    axisLabel: getPeriodicAxisLabelConfig(period, locale, config),
+    splitNumber,
+    // One tick per year, or a short year axis repeats the same label.
+    minInterval: period === "year" ? 365 * 24 * 60 * 60 * 1000 : undefined,
+  };
+}
+
 function formatTooltip(
   params: CallbackDataParams[],
   locale: FrontendLocaleData,
   config: HassConfig,
-  suggestedPeriod: string,
+  period: StatisticPeriod,
   compare: boolean | null,
   showCompareYear: boolean,
   unit?: string,
@@ -275,22 +312,27 @@ function formatTooltip(
   // originalStart has the real date for display. Gap-filled entries lack it.
   const origDate = params.find((p) => p.value?.[2] != null)?.value?.[2];
   const date = new Date(origDate ?? params[0].value?.[0]);
-  let period: string;
+  let title: string;
 
-  if (suggestedPeriod === "month") {
-    period = `${formatDateMonthYear(date, locale, config)}`;
-  } else if (suggestedPeriod === "day") {
-    period = showCompareYear
+  if (period === "year") {
+    title = formatDateYear(date, locale, config);
+  } else if (period === "month") {
+    title = formatDateMonthYear(date, locale, config);
+  } else if (period === "week") {
+    const formatDate = showCompareYear ? formatDateShort : formatDateVeryShort;
+    title = `${formatDate(date, locale, config)} – ${formatDate(addDays(date, 6), locale, config)}`;
+  } else if (period === "day") {
+    title = showCompareYear
       ? formatDateWeekdayShortDate(date, locale, config)
       : formatDateWeekdayVeryShortDate(date, locale, config);
   } else {
-    period = `${
+    title = `${
       compare
         ? `${(showCompareYear ? formatDateShort : formatDateVeryShort)(date, locale, config)}: `
         : ""
     }${formatTime(date, locale, config)}`;
     if (params[0].componentSubType === "bar") {
-      period += ` – ${formatTime(addHours(date, 1), locale, config)}`;
+      title += ` – ${formatTime(addHours(date, 1), locale, config)}`;
     }
   }
 
@@ -331,7 +373,7 @@ function formatTooltip(
   if (rows.length === 0) {
     return nothing;
   }
-  return html`<h4 style="text-align: center; margin: 0;">${period}</h4>
+  return html`<h4 style="text-align: center; margin: 0;">${title}</h4>
     ${rows.map((row, i) => html`${i > 0 ? html`<br />` : nothing}${row}`)}${
       sumPositive !== 0 && countPositive > 1 && formatTotal
         ? html`<br /><b>${formatTotal(sumPositive)}</b>`
@@ -468,7 +510,7 @@ export function generateFillBuckets(
   datasets: BarSeriesOption[],
   start: Date,
   end: Date,
-  period: "5minute" | "hour" | "day" | "month"
+  period: StatisticPeriod
 ): number[] {
   const firstBucketX = (includeCompare: boolean): number | undefined => {
     for (const dataset of datasets) {
@@ -508,7 +550,11 @@ export function generateFillBuckets(
         ? addHours(anchorDate, n)
         : period === "day"
           ? addDays(anchorDate, n)
-          : addMonths(anchorDate, n)
+          : period === "week"
+            ? addWeeks(anchorDate, n)
+            : period === "month"
+              ? addMonths(anchorDate, n)
+              : addYears(anchorDate, n)
     ).getTime();
 
   const startMs = start.getTime();
@@ -567,11 +613,29 @@ export function splitUntrackedConsumption(
   return { positive, negative };
 }
 
-export function getCompareTransform(start: Date, compareStart?: Date) {
+export function getCompareTransform(
+  start: Date,
+  compareStart?: Date,
+  period?: StatisticPeriod
+) {
   if (!compareStart) {
     return (ts: Date) => ts;
   }
   const compareDayDiff = differenceInDays(start, compareStart);
+  // Coarse buckets line up with the main period's buckets only when shifted
+  // by whole buckets: the previous month is 28–31 days, not a number of weeks.
+  if (period === "week") {
+    const weeks = Math.round(compareDayDiff / 7);
+    return (ts: Date) => addWeeks(ts, weeks);
+  }
+  if (period === "month") {
+    const months = Math.round(compareDayDiff / 30.4);
+    return (ts: Date) => addMonths(ts, months);
+  }
+  if (period === "year") {
+    const years = Math.round(compareDayDiff / 365);
+    return (ts: Date) => addYears(ts, years);
+  }
   const compareYearDiff = differenceInYears(start, compareStart);
   if (
     compareYearDiff !== 0 &&

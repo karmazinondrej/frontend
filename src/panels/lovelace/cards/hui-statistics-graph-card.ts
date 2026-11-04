@@ -18,11 +18,9 @@ import "../../../components/ha-card";
 import "../../../components/ha-icon-next";
 import "../../../components/ha-tooltip";
 import { apiContext, formattersContext } from "../../../data/context";
-import {
-  getSuggestedPeriod,
-  validateEnergyCollectionKey,
-} from "../../../data/energy";
+import { validateEnergyCollectionKey } from "../../../data/energy";
 import { EnergyCollectionController } from "../../../data/energy-collection-controller";
+import type { EnergyGranularity } from "../../../data/energy-granularity";
 import type {
   Statistics,
   StatisticsMetaData,
@@ -98,6 +96,8 @@ export class HuiStatisticsGraphCard extends LitElement implements LovelaceCard {
 
   @state() private _energyEnd?: Date;
 
+  @state() private _energyGranularity?: EnergyGranularity;
+
   @state()
   @consumeEntityStates({ entityIdPath: ["_entityIds"] })
   private _stateObjs?: Record<string, HassEntity>;
@@ -125,6 +125,7 @@ export class HuiStatisticsGraphCard extends LitElement implements LovelaceCard {
       onData: (data) => {
         this._energyStart = data.start;
         this._energyEnd = data.end;
+        this._energyGranularity = data.granularity;
         this._getStatistics();
       },
     });
@@ -254,6 +255,7 @@ export class HuiStatisticsGraphCard extends LitElement implements LovelaceCard {
     ) {
       this._energyStart = undefined;
       this._energyEnd = undefined;
+      this._energyGranularity = undefined;
       this._setFetchStatisticsTimer();
       return;
     }
@@ -309,8 +311,8 @@ export class HuiStatisticsGraphCard extends LitElement implements LovelaceCard {
   private get _period() {
     const period = this._config?.period;
     const autoMode = period === "auto";
-    return this._energyStart && this._energyEnd && (!period || autoMode)
-      ? getSuggestedPeriod(this._energyStart, this._energyEnd)
+    return this._energyGranularity && (!period || autoMode)
+      ? this._energyGranularity
       : autoMode
         ? undefined
         : period;
