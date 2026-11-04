@@ -7,6 +7,7 @@ import { classMap } from "lit/directives/class-map";
 import memoizeOne from "memoize-one";
 import type { BarSeriesOption } from "echarts/charts";
 import type { TopLevelFormatterParams } from "echarts/types/dist/shared";
+import { firstWeekdayIndex } from "../../../../common/datetime/first_weekday";
 import { getEnergyColor } from "./common/color";
 import { sumEnergyStatistics } from "./common/sum-statistics";
 import { consume } from "../../../../common/decorators/consume";
@@ -762,7 +763,8 @@ export class HuiEnergyUsageGraphCard
     const compareTransform = getCompareTransform(
       this._start,
       this._compareStart!,
-      this._granularity
+      this._granularity,
+      firstWeekdayIndex(this._i18n.locale)
     );
 
     Object.entries(combinedData).forEach(([type, sources]) => {

@@ -6,6 +6,7 @@ import { customElement, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
 import memoizeOne from "memoize-one";
 import type { BarSeriesOption } from "echarts/charts";
+import { firstWeekdayIndex } from "../../../../common/datetime/first_weekday";
 import { getEnergyColor } from "./common/color";
 import { sumEnergyStatistics } from "./common/sum-statistics";
 import { consume } from "../../../../common/decorators/consume";
@@ -370,7 +371,8 @@ export class HuiEnergyWaterGraphCard
     const compareTransform = getCompareTransform(
       this._start,
       this._compareStart!,
-      period
+      period,
+      firstWeekdayIndex(this._i18n.locale)
     );
 
     waterSources.forEach((source, idx) => {

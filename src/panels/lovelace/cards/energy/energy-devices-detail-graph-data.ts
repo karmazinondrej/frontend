@@ -1,6 +1,8 @@
 import type { BarSeriesOption } from "echarts/charts";
 import type { CallbackDataParams } from "echarts/types/dist/shared";
 import type { HassEntities } from "home-assistant-js-websocket";
+import { firstWeekdayIndex } from "../../../../common/datetime/first_weekday";
+import type { WeekdayIndex } from "../../../../common/datetime/weekday";
 import { getGraphColorByIndex } from "../../../../common/color/colors";
 import type { LocalizeFunc } from "../../../../common/translations/localize";
 import { computeYAxisFractionDigits } from "../../../../components/chart/y-axis-fraction-digits";
@@ -79,6 +81,7 @@ interface ProcessContext {
   end: Date;
   compareStart?: Date;
   granularity: EnergyGranularity;
+  weekStartsOn: WeekdayIndex;
   untrackedOrder: number;
   deviceLabels: Record<string, string>;
 }
@@ -98,7 +101,8 @@ function processDataSet(
   const compareTransform = getCompareTransform(
     ctx.start,
     ctx.compareStart!,
-    period
+    period,
+    ctx.weekStartsOn
   );
 
   // Lazily memoize a start -> change lookup per child stat so the per-point
@@ -237,7 +241,8 @@ function processUntracked(
   const compareTransform = getCompareTransform(
     ctx.start,
     ctx.compareStart!,
-    period
+    period,
+    ctx.weekStartsOn
   );
 
   // Split untracked into its positive part (genuine untracked consumption) and
@@ -387,6 +392,7 @@ export function generateEnergyDevicesDetailGraphData(
     end,
     compareStart,
     granularity: energyData.granularity,
+    weekStartsOn: firstWeekdayIndex(locale),
     untrackedOrder,
     deviceLabels: computeEnergyDeviceLabels(
       states,

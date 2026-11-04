@@ -1,5 +1,6 @@
 import type { BarSeriesOption } from "echarts/charts";
 import type { HassEntities } from "home-assistant-js-websocket";
+import type { WeekdayIndex } from "../../../../common/datetime/weekday";
 import { computeYAxisFractionDigits } from "../../../../components/chart/y-axis-fraction-digits";
 import { fillDataGapsAndRoundCaps } from "../../../../components/chart/round-caps";
 import type {
@@ -24,6 +25,8 @@ export interface EnergyGasGraphDataParams {
   darkMode: boolean;
   energyData: EnergyData;
   computedStyles: CSSStyleDeclaration;
+  /** First day of the week the compare period is aligned by. */
+  weekStartsOn?: WeekdayIndex;
   /** Current time, injected so the transform is deterministic. */
   now: Date;
   /** Sums all gas sources into one series with this name. */
@@ -94,7 +97,12 @@ export function generateEnergyGasGraphData(
   // once here instead of recomputing (and re-allocating the transform
   // closure) inside each processDataSet call.
   const period = energyData.granularity;
-  const compareTransform = getCompareTransform(start, compareStart!, period);
+  const compareTransform = getCompareTransform(
+    start,
+    compareStart!,
+    period,
+    params.weekStartsOn
+  );
 
   if (energyData.statsCompare) {
     datasets.push(

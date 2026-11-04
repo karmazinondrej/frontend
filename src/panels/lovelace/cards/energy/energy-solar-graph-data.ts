@@ -89,7 +89,12 @@ export function generateEnergySolarGraphData(
   // so the compare transform is loop-invariant across them; compute it once
   // instead of rebuilding the date-fns-heavy value per call.
   const period = energyData.granularity;
-  const compareTransform = getCompareTransform(start, compareStart!, period);
+  const compareTransform = getCompareTransform(
+    start,
+    compareStart!,
+    period,
+    params.weekStartsOn
+  );
 
   const datasets: (BarSeriesOption | LineSeriesOption)[] = [];
 

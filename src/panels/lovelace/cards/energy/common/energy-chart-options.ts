@@ -6,6 +6,7 @@ import {
   differenceInDays,
   differenceInMonths,
   differenceInCalendarMonths,
+  differenceInCalendarWeeks,
   differenceInCalendarYears,
   differenceInYears,
   startOfYear,
@@ -35,6 +36,7 @@ import {
 } from "../../../../../common/number/format_number";
 import { calcDate } from "../../../../../common/datetime/calc_date";
 import { firstWeekdayIndex } from "../../../../../common/datetime/first_weekday";
+import type { WeekdayIndex } from "../../../../../common/datetime/weekday";
 import {
   formatDateMonthYear,
   formatDateShort,
@@ -156,7 +158,8 @@ export function getCommonOptions(
     const transformedCompareEnd = getCompareTransform(
       start,
       compareStart,
-      period
+      period,
+      firstWeekdayIndex(locale)
     )(compareEnd);
     if (transformedCompareEnd.getTime() > suggestedMax.getTime()) {
       suggestedMax = getSuggestedMax(period, transformedCompareEnd, noRounding);
@@ -616,7 +619,8 @@ export function splitUntrackedConsumption(
 export function getCompareTransform(
   start: Date,
   compareStart?: Date,
-  period?: StatisticPeriod
+  period?: StatisticPeriod,
+  weekStartsOn: WeekdayIndex = 1
 ) {
   if (!compareStart) {
     return (ts: Date) => ts;
@@ -624,8 +628,12 @@ export function getCompareTransform(
   const compareDayDiff = differenceInDays(start, compareStart);
   // Coarse buckets line up with the main period's buckets only when shifted
   // by whole buckets: the previous month is 28–31 days, not a number of weeks.
+  // Weeks shift by the buckets between both starts, so the compare period's
+  // first (often partial) week lands on the main period's first week.
   if (period === "week") {
-    const weeks = Math.round(compareDayDiff / 7);
+    const weeks = differenceInCalendarWeeks(start, compareStart, {
+      weekStartsOn,
+    });
     return (ts: Date) => addWeeks(ts, weeks);
   }
   if (period === "month") {

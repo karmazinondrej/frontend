@@ -832,6 +832,32 @@ describe("generateFillBuckets", () => {
 });
 
 describe("getCompareTransform", () => {
+  it("lines up the first compare week with the first main week", () => {
+    const start = new Date(2026, 8, 1);
+    const compareStart = new Date(2026, 7, 1);
+    // August's first Monday-first week starts Jul 27, September's on Aug 31.
+    // Shifting by a rounded 31 / 7 = 4 weeks put it before the axis.
+    assert.equal(
+      getCompareTransform(
+        start,
+        compareStart,
+        "week",
+        1
+      )(new Date(2026, 6, 27)).getTime(),
+      new Date(2026, 7, 31).getTime()
+    );
+    // With Saturday-first weeks Aug 1 starts a week, as Aug 29 does.
+    assert.equal(
+      getCompareTransform(
+        start,
+        compareStart,
+        "week",
+        6
+      )(new Date(2026, 7, 1)).getTime(),
+      new Date(2026, 7, 29).getTime()
+    );
+  });
+
   it("returns identity transform when no compareStart", () => {
     const start = new Date("2024-03-01");
     const transform = getCompareTransform(start);

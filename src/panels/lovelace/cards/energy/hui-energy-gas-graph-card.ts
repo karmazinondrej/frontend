@@ -6,6 +6,7 @@ import { customElement, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
 import memoizeOne from "memoize-one";
 import type { BarSeriesOption } from "echarts/charts";
+import { firstWeekdayIndex } from "../../../../common/datetime/first_weekday";
 import { consume } from "../../../../common/decorators/consume";
 import { transform } from "../../../../common/decorators/transform";
 import {
@@ -314,6 +315,7 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
       darkMode: this._ui.themes.darkMode,
       energyData,
       computedStyles: getComputedStyle(this),
+      weekStartsOn: firstWeekdayIndex(this._i18n.locale),
       now: endOfToday(),
       combinedName:
         (this._config!.combine_sources ?? energyData.combineSources)
