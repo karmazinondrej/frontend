@@ -228,16 +228,28 @@ describe("generateEnergyGasGraphData", () => {
       period: "day",
       prefs,
       gapChance: 0,
+      compare: true,
     });
-    const readings = generateStatistics(7, {
-      ids: ["sensor.outdoor_temperature"],
-      period: "day",
-      days: 3,
-      gapChance: 0,
-    })["sensor.outdoor_temperature"];
+    const temperatureReadings = (seed: number, startMs?: number) =>
+      generateStatistics(seed, {
+        ids: ["sensor.outdoor_temperature"],
+        period: "day",
+        days: 3,
+        gapChance: 0,
+        startMs,
+      })["sensor.outdoor_temperature"];
+    const readings = temperatureReadings(7);
+    const compareReadings = temperatureReadings(
+      8,
+      energyData.statsCompare[prefs.energy_sources[0].stat_energy_from][0].start
+    );
     energyData.stats["sensor.outdoor_temperature"] = readings;
+    energyData.statsCompare["sensor.outdoor_temperature"] = compareReadings;
     energyData.dailyTemperatureStats = {
       "sensor.outdoor_temperature": readings,
+    };
+    energyData.dailyTemperatureStatsCompare = {
+      "sensor.outdoor_temperature": compareReadings,
     };
 
     const result = generateEnergyGasGraphData({
@@ -247,14 +259,21 @@ describe("generateEnergyGasGraphData", () => {
       now,
     });
 
-    const line = result.chartData.find((dataset) => dataset.type === "line")!;
-    expect(line.id).toBe("temperature-sensor.outdoor_temperature");
-    expect(line.yAxisIndex).toBe(1);
-    expect(line.data).toHaveLength(3);
+    const lines = result.chartData.filter((dataset) => dataset.type === "line");
+    expect(lines.map((line) => line.id)).toEqual([
+      "compare-temperature-sensor.outdoor_temperature",
+      "temperature-sensor.outdoor_temperature",
+    ]);
+    expect(lines.every((line) => line.yAxisIndex === 1)).toBe(true);
+    expect(lines[1].data).toHaveLength(3);
+    expect(lines[0].data).toHaveLength(3);
     expect(result.temperatureUnit).toBe("°C");
     expect(result.heatingBaseTemperature).toBe(25);
-    expect(result.heatingDegreeDays).toBeCloseTo(
-      readings.reduce((sum, point) => sum + Math.max(0, 25 - point.mean!), 0)
+    const degreeDays = (points: typeof readings) =>
+      points.reduce((sum, point) => sum + Math.max(0, 25 - point.mean!), 0);
+    expect(result.heatingDegreeDays).toBeCloseTo(degreeDays(readings));
+    expect(result.heatingDegreeDaysCompare).toBeCloseTo(
+      degreeDays(compareReadings)
     );
     expect(digestResult(result)).toMatchSnapshot();
   });

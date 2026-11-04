@@ -89,6 +89,8 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
 
   @state() private _heatingDegreeDays?: number;
 
+  @state() private _heatingDegreeDaysCompare?: number;
+
   @state() private _heatingBaseTemperature?: number;
 
   @state() private _gasStatIds?: string[];
@@ -307,8 +309,8 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
       }
     );
 
-  private _formatDegreeDays = (total: number, degreeDays: number) =>
-    this._i18n.localize(
+  private _formatDegreeDays(total: number, degreeDays: number): string {
+    const tooltip = this._i18n.localize(
       "ui.panel.lovelace.cards.energy.energy_gas_graph.degree_days_tooltip",
       {
         base: formatNumberWithUnit(
@@ -325,6 +327,18 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
         ),
       }
     );
+    if (this._heatingDegreeDaysCompare === undefined) {
+      return tooltip;
+    }
+    return `${tooltip} · ${this._i18n.localize(
+      "ui.panel.lovelace.cards.energy.energy_gas_graph.previous_degree_days",
+      {
+        num: formatNumber(this._heatingDegreeDaysCompare, this._i18n.locale, {
+          maximumFractionDigits: 0,
+        }),
+      }
+    )}`;
+  }
 
   private _createOptions = memoizeOne(
     (
@@ -360,8 +374,24 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
         typeof tooltip.formatter === "function"
           ? tooltip.formatter
           : undefined;
-      // The temperature line has its own axis and unit, so its tooltip rows
-      // are rendered here instead of with the gas bars.
+      // The temperature lines have their own axis and unit, so their tooltip
+      // rows are rendered here, after the gas bars of their period.
+      const section = (
+        bars: CallbackDataParams[],
+        temperature: CallbackDataParams | undefined
+      ) => {
+        const base =
+          bars.length && baseFormatter ? baseFormatter(bars) : nothing;
+        if (!temperature) {
+          return base === nothing ? undefined : base;
+        }
+        const rows = this._renderTemperatureRows(
+          temperature,
+          temperatureUnit,
+          locale
+        );
+        return html`${base}${base === nothing ? nothing : html`<br />`}${rows}`;
+      };
       return {
         ...commonOptions,
         yAxis: [
@@ -385,19 +415,24 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
             if (!Array.isArray(params)) {
               return baseFormatter ? baseFormatter(params) : nothing;
             }
-            const temperature = params.find((param) =>
-              String(param.seriesId).startsWith("temperature-")
-            );
-            const bars = params.filter((param) => param !== temperature);
-            const base =
-              bars.length && baseFormatter ? baseFormatter(bars) : nothing;
-            if (!temperature) {
-              return base;
+            const isCompare = (param: CallbackDataParams) =>
+              String(param.seriesId).startsWith("compare-");
+            const isTemperature = (param: CallbackDataParams) =>
+              String(param.seriesId).includes("temperature-");
+            const bars = params.filter((param) => !isTemperature(param));
+            const temperatures = params.filter(isTemperature);
+            const sections = [
+              section(
+                bars.filter((param) => !isCompare(param)),
+                temperatures.find((param) => !isCompare(param))
+              ),
+              section(bars.filter(isCompare), temperatures.find(isCompare)),
+            ].filter((part) => part !== undefined);
+            if (!sections.length) {
+              return nothing;
             }
-            return html`${base}${base === nothing ? nothing : html`<br />`}${this._renderTemperatureRows(
-              temperature,
-              temperatureUnit,
-              locale
+            return html`${sections.map(
+              (part, i) => html`${i > 0 ? html`<br /><br />` : nothing}${part}`
             )}`;
           },
         },
@@ -471,6 +506,7 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
     this._total = result.total;
     this._temperatureUnit = result.temperatureUnit;
     this._heatingDegreeDays = result.heatingDegreeDays;
+    this._heatingDegreeDaysCompare = result.heatingDegreeDaysCompare;
     this._heatingBaseTemperature = result.heatingBaseTemperature;
   }
 

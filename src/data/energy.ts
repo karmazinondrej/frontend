@@ -436,6 +436,7 @@ export interface EnergyData {
   co2SignalEntity?: string;
   /** Daily means of the outdoor temperature statistics, for degree days. */
   dailyTemperatureStats?: Statistics;
+  dailyTemperatureStatsCompare?: Statistics;
   fossilEnergyConsumption?: FossilEnergyConsumption;
   fossilEnergyConsumptionCompare?: FossilEnergyConsumption;
   waterUnit: string;
@@ -768,29 +769,26 @@ const getEnergyData = async (
     start,
     end
   );
-  const _dailyTemperatureStats: Statistics | Promise<Statistics> =
+  const fetchTemperature = (
+    rangeStart: Date,
+    rangeEnd: Date | undefined,
+    fetchPeriod: "hour" | "day"
+  ): Statistics | Promise<Statistics> =>
     temperatureStatIds.length
       ? fetchStatistics(
           callWS,
-          dayStart,
-          dayEnd,
+          rangeStart,
+          rangeEnd,
           temperatureStatIds,
-          "day",
+          fetchPeriod,
           temperatureUnits,
           ["mean"]
         )
       : {};
-  const _temperatureStats: Statistics | Promise<Statistics> =
-    temperatureStatIds.length && period === "hour"
-      ? fetchStatistics(
-          callWS,
-          periodStart,
-          periodEnd,
-          temperatureStatIds,
-          "hour",
-          temperatureUnits,
-          ["mean"]
-        )
+  const _dailyTemperatureStats = fetchTemperature(dayStart, dayEnd, "day");
+  const _temperatureStats =
+    period === "hour"
+      ? fetchTemperature(periodStart, periodEnd, "hour")
       : _dailyTemperatureStats;
 
   let statsCompare;
@@ -801,6 +799,8 @@ const getEnergyData = async (
   let _energyStatsCompare: Statistics | Promise<Statistics> = {};
   let _waterStatsCompare: Statistics | Promise<Statistics> = {};
   let _gasEnergyStatsCompare: Statistics | Promise<Statistics> = {};
+  let _temperatureStatsCompare: Statistics | Promise<Statistics> = {};
+  let _dailyTemperatureStatsCompare: Statistics | Promise<Statistics> = {};
   if (compare) {
     if (compare === CompareMode.PREVIOUS) {
       if (
@@ -852,6 +852,22 @@ const getEnergyData = async (
       startCompare,
       endCompare
     );
+    const [dayStartCompare, dayEndCompare] = getStatisticsRange(
+      locale,
+      config,
+      "day",
+      startCompare,
+      endCompare
+    );
+    _dailyTemperatureStatsCompare = fetchTemperature(
+      dayStartCompare,
+      dayEndCompare,
+      "day"
+    );
+    _temperatureStatsCompare =
+      period === "hour"
+        ? fetchTemperature(periodStartCompare, periodEndCompare, "hour")
+        : _dailyTemperatureStatsCompare;
     if (energyStatIds.length) {
       _energyStatsCompare = fetchStatistics(
         callWS,
@@ -922,6 +938,8 @@ const getEnergyData = async (
     energyStatsCompare,
     gasEnergyStatsCompare,
     waterStatsCompare,
+    temperatureStatsCompare,
+    dailyTemperatureStatsCompare,
     fossilEnergyConsumption,
     fossilEnergyConsumptionCompare,
   ] = await Promise.all([
@@ -935,6 +953,8 @@ const getEnergyData = async (
     _energyStatsCompare,
     _gasEnergyStatsCompare,
     _waterStatsCompare,
+    _temperatureStatsCompare,
+    _dailyTemperatureStatsCompare,
     _fossilEnergyConsumption,
     _fossilEnergyConsumptionCompare,
   ]);
@@ -981,6 +1001,7 @@ const getEnergyData = async (
       ...energyStatsCompare,
       ...gasEnergyStatsCompare,
       ...waterStatsCompare,
+      ...temperatureStatsCompare,
     };
   }
 
@@ -997,6 +1018,9 @@ const getEnergyData = async (
     statsCompare,
     co2SignalEntity,
     dailyTemperatureStats,
+    dailyTemperatureStatsCompare: compare
+      ? dailyTemperatureStatsCompare
+      : undefined,
     fossilEnergyConsumption,
     fossilEnergyConsumptionCompare,
     waterUnit,

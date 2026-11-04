@@ -9,14 +9,15 @@ exports[`generateEnergyGasGraphData > draws the outdoor temperature on a second 
     "end",
     "heatingBaseTemperature",
     "heatingDegreeDays",
+    "heatingDegreeDaysCompare",
     "start",
     "temperatureUnit",
     "total",
     "unit",
     "yAxisFractionDigits",
   ],
-  "numberCount": 42,
-  "numberSum": "2.04498432002e+13",
+  "numberCount": 99,
+  "numberSum": "5.11207200004e+13",
   "type": "object",
 }
 `;

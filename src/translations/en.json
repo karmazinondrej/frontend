@@ -10162,7 +10162,8 @@
               "outdoor_temperature": "Outdoor temperature",
               "heating_degree_days": "Heating degree days",
               "degree_days": "{num} degree days",
-              "degree_days_tooltip": "Heating degree days below {base}: {usage} per degree day"
+              "degree_days_tooltip": "Heating degree days below {base}: {usage} per degree day",
+              "previous_degree_days": "Previous period: {num} degree days"
             },
             "energy_water_graph": {
               "total_consumed": "[%key:ui::panel::lovelace::cards::energy::energy_gas_graph::total_consumed%]"

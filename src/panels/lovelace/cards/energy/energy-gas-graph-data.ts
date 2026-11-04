@@ -58,6 +58,7 @@ export interface EnergyGasGraphData {
   temperatureUnit?: string;
   /** Heating degree days over the period, from the outdoor temperature. */
   heatingDegreeDays?: number;
+  heatingDegreeDaysCompare?: number;
   /** Degree day base in `temperatureUnit`. */
   heatingBaseTemperature?: number;
 }
@@ -158,9 +159,9 @@ export function generateEnergyGasGraphData(
   const yAxisFractionDigits = computeYAxisFractionDigits(yMin, yMax, true);
   const total = processTotal(energyData.stats, gasSources);
   // After gap filling, which is meant for the bars only.
-  const heating = processHeating(params, period, gasSources);
+  const heating = processHeating(params, compareTransform, period, gasSources);
   const chartData: (BarSeriesOption | LineSeriesOption)[] = heating
-    ? [...datasets, heating.series]
+    ? [...datasets, ...heating.series]
     : datasets;
 
   return {
@@ -175,6 +176,7 @@ export function generateEnergyGasGraphData(
     ...(heating && {
       temperatureUnit: params.temperatureUnit,
       heatingDegreeDays: heating.degreeDays,
+      heatingDegreeDaysCompare: heating.compareDegreeDays,
       heatingBaseTemperature: heating.baseTemperature,
     }),
   };
@@ -182,9 +184,10 @@ export function generateEnergyGasGraphData(
 
 /**
  * The outdoor temperature of the first gas source that has one, on the grid
- * of that source's consumption buckets. Buckets of at least a day carry their
- * degree days as the fourth tuple element for the tooltip; degree days are a
- * daily quantity, so hourly buckets only add up to the period total.
+ * of that source's consumption buckets, for the main and the compare period.
+ * Buckets of at least a day carry their degree days as the fourth tuple
+ * element for the tooltip; degree days are a daily quantity, so hourly
+ * buckets only add up to the period total.
  */
 function processHeating(
   {
@@ -193,6 +196,7 @@ function processHeating(
     computedStyles,
     temperatureUnit,
   }: EnergyGasGraphDataParams,
+  compareTransform: (ts: Date) => Date,
   period: ReturnType<typeof getSuggestedPeriod>,
   gasSources: GasSourceTypeEnergyPreference[]
 ) {
@@ -205,54 +209,96 @@ function processHeating(
     return undefined;
   }
   const statId = source.stat_outdoor_temperature!;
-  const buckets = energyData.stats[source.stat_energy_from] ?? [];
   const baseTemperature = convertCelsius(
     source.heating_base_temperature ?? DEFAULT_HEATING_BASE_TEMPERATURE,
     temperatureUnit
   );
-  const dailyReadings = energyData.dailyTemperatureStats?.[statId] ?? [];
   const hourly = period === "hour" || period === "5minute";
-  const temperatures = meanTemperatureByBucket(
-    energyData.stats[statId],
-    buckets
+  const name = localize(
+    "ui.panel.lovelace.cards.energy.energy_gas_graph.outdoor_temperature"
   );
-  const bucketDegreeDays = hourly
-    ? undefined
-    : degreeDaysByBucket(dailyReadings, buckets, baseTemperature);
-  const degreeDays = buckets.length
-    ? degreeDaysByBucket(
-        dailyReadings,
-        [{ start: buckets[0].start, end: buckets[buckets.length - 1].end }],
-        baseTemperature
-      ).get(buckets[0].start)!
-    : 0;
-  const data: [number, number, number, number?][] = [];
-  for (const bucket of buckets) {
-    const temperature = temperatures.get(bucket.start);
-    if (temperature === undefined) {
-      continue;
+
+  const heatingSeries = (
+    statistics: Statistics,
+    dailyStatistics: Statistics | undefined,
+    compare: boolean
+  ) => {
+    const buckets = statistics[source.stat_energy_from] ?? [];
+    const dailyReadings = dailyStatistics?.[statId] ?? [];
+    const temperatures = meanTemperatureByBucket(
+      statistics[statId] ?? [],
+      buckets
+    );
+    const bucketDegreeDays = hourly
+      ? undefined
+      : degreeDaysByBucket(dailyReadings, buckets, baseTemperature);
+    const degreeDays = buckets.length
+      ? degreeDaysByBucket(
+          dailyReadings,
+          [{ start: buckets[0].start, end: buckets[buckets.length - 1].end }],
+          baseTemperature
+        ).get(buckets[0].start)!
+      : 0;
+    const transform = compare ? compareTransform : undefined;
+    const data: [number, number, number, number?][] = [];
+    for (const bucket of buckets) {
+      const temperature = temperatures.get(bucket.start);
+      if (temperature === undefined) {
+        continue;
+      }
+      let x: number;
+      if (hourly) {
+        x = transform
+          ? (transform(new Date(bucket.start)).getTime() +
+              transform(new Date(bucket.end)).getTime()) /
+            2
+          : (bucket.start + bucket.end) / 2;
+      } else {
+        x = transform
+          ? transform(new Date(bucket.start)).getTime()
+          : bucket.start;
+      }
+      data.push([
+        x,
+        temperature,
+        bucket.start,
+        bucketDegreeDays?.get(bucket.start),
+      ]);
     }
-    data.push([
-      hourly ? (bucket.start + bucket.end) / 2 : bucket.start,
-      temperature,
-      bucket.start,
-      bucketDegreeDays?.get(bucket.start),
-    ]);
-  }
-  const series: LineSeriesOption = {
-    id: "temperature-" + statId,
-    type: "line",
-    name: localize(
-      "ui.panel.lovelace.cards.energy.energy_gas_graph.outdoor_temperature"
-    ),
-    yAxisIndex: 1,
-    color: computedStyles.getPropertyValue("--primary-text-color"),
-    lineStyle: { width: 1.5 },
-    symbol: "none",
-    z: 3,
-    data,
+    const series: LineSeriesOption = {
+      id: (compare ? "compare-temperature-" : "temperature-") + statId,
+      type: "line",
+      name,
+      yAxisIndex: 1,
+      color: computedStyles.getPropertyValue(
+        compare ? "--secondary-text-color" : "--primary-text-color"
+      ),
+      lineStyle: compare ? { width: 1.5, type: [7, 5] } : { width: 1.5 },
+      symbol: "none",
+      z: 3,
+      data,
+    };
+    return { series, degreeDays };
   };
-  return { series, degreeDays, baseTemperature };
+
+  const main = heatingSeries(
+    energyData.stats,
+    energyData.dailyTemperatureStats,
+    false
+  );
+  const compare = energyData.statsCompare
+    ? heatingSeries(
+        energyData.statsCompare,
+        energyData.dailyTemperatureStatsCompare,
+        true
+      )
+    : undefined;
+  return {
+    series: compare ? [compare.series, main.series] : [main.series],
+    degreeDays: main.degreeDays,
+    compareDegreeDays: compare?.degreeDays,
+    baseTemperature,
+  };
 }
 
 function processTotal(
