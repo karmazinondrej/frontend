@@ -16,7 +16,7 @@ exports[`generateEnergyGasGraphData > draws the outdoor temperature on a second 
     "unit",
     "yAxisFractionDigits",
   ],
-  "numberCount": 99,
+  "numberCount": 101,
   "numberSum": "5.11207200004e+13",
   "type": "object",
 }

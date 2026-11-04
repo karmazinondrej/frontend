@@ -274,7 +274,9 @@ function processHeating(
         compare ? "--secondary-text-color" : "--primary-text-color"
       ),
       lineStyle: compare ? { width: 1.5, type: [7, 5] } : { width: 1.5 },
-      symbol: "none",
+      // A lone bucket has no line to draw, so it gets a marker instead.
+      symbol: data.length === 1 ? "circle" : "none",
+      symbolSize: 8,
       z: 3,
       data,
     };

@@ -278,6 +278,43 @@ describe("generateEnergyGasGraphData", () => {
     expect(digestResult(result)).toMatchSnapshot();
   });
 
+  it("marks a lone temperature bucket instead of drawing a line", () => {
+    const prefs = gasOnlyPrefs(1);
+    prefs.energy_sources[0] = {
+      ...(prefs.energy_sources[0] as GasSourceTypeEnergyPreference),
+      stat_outdoor_temperature: "sensor.outdoor_temperature",
+    };
+    const energyData = generateEnergyData(3, {
+      days: 1,
+      period: "day",
+      prefs,
+      gapChance: 0,
+    });
+    const readings = generateStatistics(9, {
+      ids: ["sensor.outdoor_temperature"],
+      period: "day",
+      days: 1,
+      gapChance: 0,
+    })["sensor.outdoor_temperature"];
+    energyData.stats["sensor.outdoor_temperature"] = readings;
+    energyData.dailyTemperatureStats = {
+      "sensor.outdoor_temperature": readings,
+    };
+
+    const result = generateEnergyGasGraphData({
+      ...baseParams,
+      energyData,
+      computedStyles,
+      now,
+    });
+
+    const line = result.chartData.find(
+      (dataset) => dataset.type === "line"
+    ) as LineSeriesOption;
+    expect(line.data).toHaveLength(1);
+    expect(line.symbol).toBe("circle");
+  });
+
   it("sums all gas sources into one series when combinedName is set", () => {
     const energyData = generateEnergyData(12, {
       days: 1,
