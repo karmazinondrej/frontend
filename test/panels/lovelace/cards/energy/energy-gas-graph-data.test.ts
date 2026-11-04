@@ -285,11 +285,12 @@ describe("generateEnergyGasGraphData", () => {
       stat_outdoor_temperature: "sensor.outdoor_temperature",
     };
     const energyData = generateEnergyData(3, {
-      days: 1,
+      days: 3,
       period: "day",
       prefs,
       gapChance: 0,
     });
+    // The sensor was added on the first day, so only that day has a reading.
     const readings = generateStatistics(9, {
       ids: ["sensor.outdoor_temperature"],
       period: "day",
@@ -309,7 +310,7 @@ describe("generateEnergyGasGraphData", () => {
     });
 
     const line = result.chartData.find(
-      (dataset) => dataset.type === "line"
+      (dataset) => dataset.id === "temperature-sensor.outdoor_temperature"
     ) as LineSeriesOption;
     expect(line.data).toHaveLength(1);
     expect(line.symbol).toBe("circle");

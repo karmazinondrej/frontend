@@ -296,7 +296,9 @@ function processHeating(
       )
     : undefined;
   return {
-    series: compare ? [compare.series, main.series] : [main.series],
+    series: compare?.series.data?.length
+      ? [compare.series, main.series]
+      : [main.series],
     degreeDays: main.degreeDays,
     compareDegreeDays: compare?.degreeDays,
     baseTemperature,
