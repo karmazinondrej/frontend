@@ -334,6 +334,7 @@ export class HuiEnergyDevicesDetailGraphCard
       config: this._config!,
       computedStyles: getComputedStyle(this),
       now: endOfToday(),
+      timeZone: this._hassConfig.time_zone,
       untrackedOrder: Date.now(),
     });
 

@@ -562,7 +562,8 @@ export class HuiEnergyUsageGraphCard
         datasets,
         this._start,
         this._end,
-        getSuggestedPeriod(this._start, this._end)
+        getSuggestedPeriod(this._start, this._end),
+        this._hassConfig.time_zone
       )
     );
     this._yAxisFractionDigits = computeYAxisFractionDigits(yMin, yMax, true);

@@ -1,3 +1,4 @@
+import { TZDate } from "@date-fns/tz";
 import type { HassConfig } from "home-assistant-js-websocket";
 import type { TemplateResult } from "lit";
 import { html, nothing } from "lit";
@@ -463,12 +464,15 @@ export function getPeriodMidpointOffset(
  * view — e.g. today has no data yet but the compare period does — still gets
  * zero-filled instead of leaving a lone bar that expands the axis. Returns an
  * empty array when there is no data to anchor on.
+ *
+ * Buckets are stepped in the server time zone, where core aligns them.
  */
 export function generateFillBuckets(
   datasets: BarSeriesOption[],
   start: Date,
   end: Date,
-  period: "5minute" | "hour" | "day" | "month"
+  period: "5minute" | "hour" | "day" | "month",
+  timeZone: string
 ): number[] {
   const firstBucketX = (includeCompare: boolean): number | undefined => {
     for (const dataset of datasets) {
@@ -498,7 +502,11 @@ export function generateFillBuckets(
     return [];
   }
 
-  const anchorDate = new Date(anchor);
+  const zonedAnchor = new TZDate(anchor, timeZone);
+  // TZDate is invalid where Intl lacks "longOffset" (Chrome < 95, Safari < 15.4)
+  const anchorDate = Number.isNaN(zonedAnchor.getTime())
+    ? new Date(anchor)
+    : zonedAnchor;
   // Step relative to the anchor (not iteratively) so month-length clamping
   // and DST shifts can't accumulate drift.
   const bucketAt = (n: number): number =>

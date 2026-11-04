@@ -46,6 +46,8 @@ export interface EnergyDevicesDetailGraphDataParams {
   config: EnergyDevicesDetailGraphCardConfig;
   computedStyles: CSSStyleDeclaration;
   now: Date;
+  /** Server time zone, which core aligns day and month buckets to. */
+  timeZone: string;
   /**
    * Numeric suffix appended to the untracked dataset's series id so it always
    * sorts after the device datasets. The original card sourced this from a
@@ -542,7 +544,13 @@ export function generateEnergyDevicesDetailGraphData(
   fillDataGapsAndRoundCaps(
     datasets,
     true,
-    generateFillBuckets(datasets, start, end, getSuggestedPeriod(start, end))
+    generateFillBuckets(
+      datasets,
+      start,
+      end,
+      getSuggestedPeriod(start, end),
+      params.timeZone
+    )
   );
   const yAxisFractionDigits = computeYAxisFractionDigits(yMin, yMax, true);
 

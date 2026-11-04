@@ -12,7 +12,12 @@ const computedStyles = createMockComputedStyle({
   "--energy-gas-color": "#1b7ea0",
 });
 const { states, formatEntityName } = createMockHass();
-const baseParams = { states, formatEntityName, darkMode: false };
+const baseParams = {
+  states,
+  formatEntityName,
+  darkMode: false,
+  timeZone: "UTC",
+};
 
 const now = new Date("2024-02-15T00:00:00Z");
 

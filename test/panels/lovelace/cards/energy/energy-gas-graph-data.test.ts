@@ -25,7 +25,12 @@ const computedStyles = createMockComputedStyle({
 });
 
 const { states, formatEntityName } = createMockHass();
-const baseParams = { states, formatEntityName, darkMode: false };
+const baseParams = {
+  states,
+  formatEntityName,
+  darkMode: false,
+  timeZone: "UTC",
+};
 
 // Energy preferences with only gas sources (the card filters to type "gas").
 const gasOnlyPrefs = (sources: number): EnergyPreferences => ({

@@ -309,6 +309,7 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
       energyData,
       computedStyles: getComputedStyle(this),
       now: endOfToday(),
+      timeZone: this._hassConfig.time_zone,
       combinedName:
         (this._config!.combine_sources ?? energyData.combineSources)
           ? this._i18n.localize(
