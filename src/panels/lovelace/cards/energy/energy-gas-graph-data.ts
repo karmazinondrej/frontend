@@ -12,6 +12,7 @@ import {
   DEFAULT_HEATING_BASE_TEMPERATURE,
   degreeDaysByBucket,
   meanTemperatureByBucket,
+  totalDegreeDays,
 } from "../../../../data/energy-heating";
 import type { LocalizeFunc } from "../../../../common/translations/localize";
 import type { Statistics, StatisticsMetaData } from "../../../../data/recorder";
@@ -183,11 +184,12 @@ export function generateEnergyGasGraphData(
 }
 
 /**
- * The outdoor temperature of the first gas source that has one, on the grid
- * of that source's consumption buckets, for the main and the compare period.
- * Buckets of at least a day carry their degree days as the fourth tuple
- * element for the tooltip; degree days are a daily quantity, so hourly
- * buckets only add up to the period total.
+ * The outdoor temperature on the grid of the gas consumption buckets, for
+ * the main and the compare period. Gas sources normally share one outdoor
+ * sensor, so the first source with one is used. Buckets of at least a day
+ * carry their degree days as the fourth tuple element for the tooltip; degree
+ * days are a daily quantity, so the period totals come straight from the
+ * daily readings and hourly buckets carry none.
  */
 function processHeating(
   {
@@ -201,9 +203,7 @@ function processHeating(
   gasSources: GasSourceTypeEnergyPreference[]
 ) {
   const source = gasSources.find(
-    (gasSource) =>
-      gasSource.stat_outdoor_temperature &&
-      gasSource.stat_outdoor_temperature in energyData.stats
+    (gasSource) => gasSource.stat_outdoor_temperature
   );
   if (!source) {
     return undefined;
@@ -232,19 +232,15 @@ function processHeating(
     const bucketDegreeDays = hourly
       ? undefined
       : degreeDaysByBucket(dailyReadings, buckets, baseTemperature);
-    const degreeDays = buckets.length
-      ? degreeDaysByBucket(
-          dailyReadings,
-          [{ start: buckets[0].start, end: buckets[buckets.length - 1].end }],
-          baseTemperature
-        ).get(buckets[0].start)!
-      : 0;
+    const degreeDays = totalDegreeDays(dailyReadings, baseTemperature);
     const transform = compare ? compareTransform : undefined;
-    const data: [number, number, number, number?][] = [];
+    // A bucket without a reading breaks the line instead of being bridged.
+    const data: [number, number | null, number, number?][] = [];
+    let readingCount = 0;
     for (const bucket of buckets) {
-      const temperature = temperatures.get(bucket.start);
-      if (temperature === undefined) {
-        continue;
+      const temperature = temperatures.get(bucket.start) ?? null;
+      if (temperature !== null) {
+        readingCount++;
       }
       let x: number;
       if (hourly) {
@@ -274,13 +270,13 @@ function processHeating(
         compare ? "--secondary-text-color" : "--primary-text-color"
       ),
       lineStyle: compare ? { width: 1.5, type: [7, 5] } : { width: 1.5 },
-      // A lone bucket has no line to draw, so it gets a marker instead.
-      symbol: data.length === 1 ? "circle" : "none",
+      // A lone reading has no line to draw, so it gets a marker instead.
+      symbol: readingCount === 1 ? "circle" : "none",
       symbolSize: 8,
       z: 3,
       data,
     };
-    return { series, degreeDays };
+    return { series, degreeDays, readingCount };
   };
 
   const main = heatingSeries(
@@ -295,8 +291,11 @@ function processHeating(
         true
       )
     : undefined;
+  if (!main.readingCount && !compare?.readingCount) {
+    return undefined;
+  }
   return {
-    series: compare?.series.data?.length
+    series: compare?.readingCount
       ? [compare.series, main.series]
       : [main.series],
     degreeDays: main.degreeDays,

@@ -312,8 +312,69 @@ describe("generateEnergyGasGraphData", () => {
     const line = result.chartData.find(
       (dataset) => dataset.id === "temperature-sensor.outdoor_temperature"
     ) as LineSeriesOption;
-    expect(line.data).toHaveLength(1);
+    // Buckets without a reading are kept as gaps so the line is not bridged.
+    expect(line.data).toHaveLength(3);
+    expect(
+      (line.data as [number, number | null][]).filter(
+        ([, temperature]) => temperature !== null
+      )
+    ).toHaveLength(1);
     expect(line.symbol).toBe("circle");
+  });
+
+  it("counts degree days from the daily readings, not the gas buckets", () => {
+    const prefs = gasOnlyPrefs(1);
+    prefs.energy_sources[0] = {
+      ...(prefs.energy_sources[0] as GasSourceTypeEnergyPreference),
+      stat_outdoor_temperature: "sensor.outdoor_temperature",
+      heating_base_temperature: 30,
+    };
+    // Hourly view of a day in a browser an hour ahead of the server: the
+    // daily reading starts an hour before the first hourly gas bucket.
+    const energyData = generateEnergyData(4, {
+      days: 1,
+      period: "hour",
+      prefs,
+      gapChance: 0,
+      compare: true,
+    });
+    const HOUR = 60 * 60 * 1000;
+    const DAY = 24 * HOUR;
+    const dailyReading = (start: number, mean: number) => [
+      { start, end: start + DAY, mean },
+    ];
+    const gasStart =
+      energyData.stats[prefs.energy_sources[0].stat_energy_from][0].start;
+    energyData.stats["sensor.outdoor_temperature"] = generateStatistics(5, {
+      ids: ["sensor.outdoor_temperature"],
+      period: "hour",
+      days: 1,
+      gapChance: 0,
+    })["sensor.outdoor_temperature"];
+    energyData.dailyTemperatureStats = {
+      "sensor.outdoor_temperature": dailyReading(gasStart - HOUR, 20),
+    };
+    // The compared period has readings but no gas rows yet.
+    energyData.statsCompare = {};
+    energyData.dailyTemperatureStatsCompare = {
+      "sensor.outdoor_temperature": dailyReading(gasStart - DAY - HOUR, 25),
+    };
+
+    const result = generateEnergyGasGraphData({
+      ...baseParams,
+      energyData,
+      computedStyles,
+      now,
+    });
+
+    expect(result.heatingDegreeDays).toBe(10);
+    expect(result.heatingDegreeDaysCompare).toBe(5);
+    expect(
+      result.chartData.some(
+        (dataset) =>
+          dataset.id === "compare-temperature-sensor.outdoor_temperature"
+      )
+    ).toBe(false);
   });
 
   it("sums all gas sources into one series when combinedName is set", () => {

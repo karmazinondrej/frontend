@@ -257,6 +257,33 @@ export function getCommonOptions(
   return options;
 }
 
+/** The period of a tooltip, e.g. "Mon, Oct 5" or "14:00 – 15:00". */
+export function formatTooltipTitle(
+  date: Date,
+  locale: FrontendLocaleData,
+  config: HassConfig,
+  period: string,
+  compare: boolean | null,
+  showCompareYear: boolean,
+  bar: boolean
+): string {
+  if (period === "month") {
+    return formatDateMonthYear(date, locale, config);
+  }
+  if (period === "day") {
+    return showCompareYear
+      ? formatDateWeekdayShortDate(date, locale, config)
+      : formatDateWeekdayVeryShortDate(date, locale, config);
+  }
+  const prefix = compare
+    ? `${(showCompareYear ? formatDateShort : formatDateVeryShort)(date, locale, config)}: `
+    : "";
+  const time = formatTime(date, locale, config);
+  return bar
+    ? `${prefix}${time} – ${formatTime(addHours(date, 1), locale, config)}`
+    : `${prefix}${time}`;
+}
+
 function formatTooltip(
   params: CallbackDataParams[],
   locale: FrontendLocaleData,
@@ -275,24 +302,15 @@ function formatTooltip(
   // originalStart has the real date for display. Gap-filled entries lack it.
   const origDate = params.find((p) => p.value?.[2] != null)?.value?.[2];
   const date = new Date(origDate ?? params[0].value?.[0]);
-  let period: string;
-
-  if (suggestedPeriod === "month") {
-    period = `${formatDateMonthYear(date, locale, config)}`;
-  } else if (suggestedPeriod === "day") {
-    period = showCompareYear
-      ? formatDateWeekdayShortDate(date, locale, config)
-      : formatDateWeekdayVeryShortDate(date, locale, config);
-  } else {
-    period = `${
-      compare
-        ? `${(showCompareYear ? formatDateShort : formatDateVeryShort)(date, locale, config)}: `
-        : ""
-    }${formatTime(date, locale, config)}`;
-    if (params[0].componentSubType === "bar") {
-      period += ` – ${formatTime(addHours(date, 1), locale, config)}`;
-    }
-  }
+  const period = formatTooltipTitle(
+    date,
+    locale,
+    config,
+    suggestedPeriod,
+    compare,
+    showCompareYear,
+    params[0].componentSubType === "bar"
+  );
 
   let sumPositive = 0;
   let countPositive = 0;

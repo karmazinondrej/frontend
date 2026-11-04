@@ -24,6 +24,10 @@ const groupByBucket = (
   const groups = new Map<number, StatisticValue[]>();
   let index = 0;
   for (const bucket of buckets) {
+    // A repeated bucket keeps the readings of its first occurrence.
+    if (groups.has(bucket.start)) {
+      continue;
+    }
     while (index < readings.length && readings[index].start < bucket.start) {
       index++;
     }
@@ -60,10 +64,32 @@ export const meanTemperatureByBucket = (
   return result;
 };
 
+/** Heating degree days of one daily mean; a missing mean counts nothing. */
+const degreeDaysOfDay = (
+  mean: number | null | undefined,
+  baseTemperature: number
+): number =>
+  mean === null || mean === undefined ? 0 : Math.max(0, baseTemperature - mean);
+
 /**
- * Heating degree days per bucket: how far each day's mean temperature stayed
- * below the base, summed over the days in the bucket. Days are the unit of
- * degree days, so `dailyReadings` must be daily means.
+ * Heating degree days of a period: how far each day's mean temperature stayed
+ * below the base, summed over all daily readings. `undefined` without any
+ * reading, so a missing sensor is not mistaken for a warm period.
+ */
+export const totalDegreeDays = (
+  dailyReadings: StatisticValue[],
+  baseTemperature: number
+): number | undefined =>
+  dailyReadings.length
+    ? dailyReadings.reduce(
+        (sum, { mean }) => sum + degreeDaysOfDay(mean, baseTemperature),
+        0
+      )
+    : undefined;
+
+/**
+ * Heating degree days per bucket, summed over the days in the bucket. Days
+ * are the unit of degree days, so `dailyReadings` must be daily means.
  */
 export const degreeDaysByBucket = (
   dailyReadings: StatisticValue[],
@@ -75,10 +101,7 @@ export const degreeDaysByBucket = (
     result.set(
       start,
       group.reduce(
-        (sum, { mean }) =>
-          mean === null || mean === undefined
-            ? sum
-            : sum + Math.max(0, baseTemperature - mean),
+        (sum, { mean }) => sum + degreeDaysOfDay(mean, baseTemperature),
         0
       )
     );

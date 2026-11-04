@@ -4,6 +4,7 @@ import {
   convertToCelsius,
   degreeDaysByBucket,
   meanTemperatureByBucket,
+  totalDegreeDays,
 } from "../../src/data/energy-heating";
 
 const HOUR = 60 * 60 * 1000;
@@ -25,6 +26,15 @@ describe("convertCelsius", () => {
 });
 
 describe("meanTemperatureByBucket", () => {
+  it("keeps the readings of a repeated bucket start", () => {
+    const buckets = [
+      { start: 0, end: DAY },
+      { start: 0, end: DAY },
+    ];
+    const result = meanTemperatureByBucket([reading(0, DAY, 7)], buckets);
+    assert.equal(result.get(0), 7);
+  });
+
   it("averages the readings that start in each bucket", () => {
     const buckets = [
       { start: 0, end: DAY },
@@ -41,6 +51,16 @@ describe("meanTemperatureByBucket", () => {
     assert.equal(result.get(0), 5);
     assert.isFalse(result.has(DAY), "a bucket without a mean is left out");
     assert.equal(result.get(2 * DAY), 7);
+  });
+});
+
+describe("totalDegreeDays", () => {
+  it("sums all daily readings and is undefined without any", () => {
+    assert.equal(
+      totalDegreeDays([reading(0, DAY, 10), reading(DAY, DAY, 20)], 15),
+      5
+    );
+    assert.isUndefined(totalDegreeDays([], 15));
   });
 });
 

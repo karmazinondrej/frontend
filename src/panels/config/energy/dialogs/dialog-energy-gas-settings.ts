@@ -102,6 +102,11 @@ export class DialogEnergyGasSettings
     this._source = params.source
       ? { ...params.source }
       : emptyGasEnergyPreference();
+    // A source saved without a base, e.g. through the API, gets the default.
+    if (this._source.stat_outdoor_temperature) {
+      this._source.heating_base_temperature ??=
+        DEFAULT_HEATING_BASE_TEMPERATURE;
+    }
     this._pickedDisplayUnit = getDisplayUnit(
       this.hass.states,
       params.source?.stat_energy_from,
@@ -518,10 +523,12 @@ export class DialogEnergyGasSettings
     if (Number.isNaN(value)) {
       delete source.heating_base_temperature;
     } else {
-      source.heating_base_temperature = convertToCelsius(
-        value,
-        this.hass.config.unit_system.temperature
-      );
+      // Rounded so a value shown in °F stores the °C it was displayed from
+      source.heating_base_temperature =
+        Math.round(
+          convertToCelsius(value, this.hass.config.unit_system.temperature) *
+            100
+        ) / 100;
     }
     this._source = source;
     this._updateFormDirtyState();

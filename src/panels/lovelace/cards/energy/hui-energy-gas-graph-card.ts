@@ -32,6 +32,7 @@ import type { EnergyData } from "../../../../data/energy";
 import {
   energySourcesByType,
   validateEnergyCollectionKey,
+  getSuggestedPeriod,
 } from "../../../../data/energy";
 import { EnergyCollectionController } from "../../../../data/energy-collection-controller";
 import type { FrontendLocaleData } from "../../../../data/translation";
@@ -44,7 +45,10 @@ import type {
 } from "../../../../types";
 import type { LovelaceCard } from "../../types";
 import type { EnergyGasGraphCardConfig } from "../types";
-import { getCommonOptions } from "./common/energy-chart-options";
+import {
+  formatTooltipTitle,
+  getCommonOptions,
+} from "./common/energy-chart-options";
 import type { HaECOption } from "../../../../resources/echarts/echarts";
 import { generateEnergyGasGraphData } from "./energy-gas-graph-data";
 import "./common/hui-energy-graph-chip";
@@ -375,7 +379,12 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
           ? tooltip.formatter
           : undefined;
       // The temperature lines have their own axis and unit, so their tooltip
-      // rows are rendered here, after the gas bars of their period.
+      // rows are rendered here, after the gas bars of their period. Without
+      // visible gas the base formatter has no header, so one is added.
+      const period = getSuggestedPeriod(start, end);
+      const showCompareYear =
+        compareStart !== undefined &&
+        start.getFullYear() !== compareStart.getFullYear();
       const section = (
         bars: CallbackDataParams[],
         temperature: CallbackDataParams | undefined
@@ -390,7 +399,20 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
           temperatureUnit,
           locale
         );
-        return html`${base}${base === nothing ? nothing : html`<br />`}${rows}`;
+        if (base !== nothing) {
+          return html`${base}<br />${rows}`;
+        }
+        const title = formatTooltipTitle(
+          new Date((temperature.value as number[])[2]),
+          locale,
+          config,
+          period,
+          compareStart !== undefined,
+          showCompareYear,
+          true
+        );
+        return html`<h4 style="text-align: center; margin: 0;">${title}</h4>
+          ${rows}`;
       };
       return {
         ...commonOptions,
@@ -418,7 +440,7 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
             const isCompare = (param: CallbackDataParams) =>
               String(param.seriesId).startsWith("compare-");
             const isTemperature = (param: CallbackDataParams) =>
-              String(param.seriesId).includes("temperature-");
+              /^(compare-)?temperature-/.test(String(param.seriesId));
             const bars = params.filter((param) => !isTemperature(param));
             const temperatures = params.filter(isTemperature);
             const sections = [
@@ -447,10 +469,13 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
   ) {
     const [, temperature, , degreeDays] = param.value as [
       number,
-      number,
+      number | null,
       number,
       number?,
     ];
+    if (temperature === null) {
+      return nothing;
+    }
     return html`<ha-chart-tooltip-marker
         .color=${String(param.color ?? "")}
       ></ha-chart-tooltip-marker>
@@ -464,7 +489,7 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
         degreeDays === undefined
           ? nothing
           : html`<br />${this._i18n.localize(
-                "ui.panel.lovelace.cards.energy.energy_gas_graph.heating_degree_days"
+                "ui.panel.lovelace.cards.energy.energy_gas_graph.degree_days_row"
               )}:
               <div style="direction:ltr; display: inline;">
                 ${formatNumber(degreeDays, locale, {
