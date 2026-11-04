@@ -240,7 +240,9 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
                       : nothing
                   }
                   ${
-                    this._total && this._heatingDegreeDays
+                    this._total &&
+                    this._heatingDegreeDays !== undefined &&
+                    Math.round(this._heatingDegreeDays) >= 1
                       ? html`<hui-energy-graph-chip
                           .tooltip=${this._formatDegreeDays(
                             this._total,
@@ -442,7 +444,12 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
             const isTemperature = (param: CallbackDataParams) =>
               /^(compare-)?temperature-/.test(String(param.seriesId));
             const bars = params.filter((param) => !isTemperature(param));
-            const temperatures = params.filter(isTemperature);
+            // A bucket without a reading is a gap in the line, not a row.
+            const temperatures = params.filter(
+              (param) =>
+                isTemperature(param) &&
+                (param.value as [number, number | null])[1] !== null
+            );
             const sections = [
               section(
                 bars.filter((param) => !isCompare(param)),
@@ -469,13 +476,10 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
   ) {
     const [, temperature, , degreeDays] = param.value as [
       number,
-      number | null,
+      number,
       number,
       number?,
     ];
-    if (temperature === null) {
-      return nothing;
-    }
     return html`<ha-chart-tooltip-marker
         .color=${String(param.color ?? "")}
       ></ha-chart-tooltip-marker>
