@@ -41,6 +41,8 @@ import type {
 } from "./energy-granularity";
 import {
   getEnergyFetchPeriod,
+  joinStatisticsRequests,
+  planStatisticsRequests,
   rebucketFossilEnergyConsumption,
   rebucketStatistics,
   resolveEnergyGranularity,
@@ -583,6 +585,36 @@ const getStatisticsRange = (
         end && shiftToServerTimeZone(end, locale, config),
       ];
 
+/**
+ * The `change` of statistics in buckets of `period`, covering only the range:
+ * core would widen a day or month request to whole buckets.
+ */
+const fetchChangeStatistics = async (
+  callWS: HomeAssistant["callWS"],
+  config: HomeAssistant["config"],
+  start: Date,
+  end: Date | undefined,
+  statisticIds: string[],
+  period: EnergyFetchPeriod,
+  units: StatisticsUnitConfiguration
+): Promise<Statistics> => {
+  const requests = planStatisticsRequests(start, end, period, config);
+  const results = await Promise.all(
+    requests.map((request) =>
+      fetchStatistics(
+        callWS,
+        request.start,
+        request.end,
+        statisticIds,
+        request.period,
+        units,
+        ["change"]
+      )
+    )
+  );
+  return joinStatisticsRequests(requests, results, period, config);
+};
+
 interface EnergySelection {
   start: Date;
   end?: Date;
@@ -706,26 +738,26 @@ const getEnergyData = async (
   };
 
   const _energyStats: Statistics | Promise<Statistics> = energyStatIds.length
-    ? fetchStatistics(
+    ? fetchChangeStatistics(
         callWS,
+        config,
         periodStart,
         periodEnd,
         energyStatIds,
         period,
-        energyUnits,
-        ["change"]
+        energyUnits
       )
     : {};
   const _gasEnergyStats: Statistics | Promise<Statistics> =
     gasEnergyStatIds.length
-      ? fetchStatistics(
+      ? fetchChangeStatistics(
           callWS,
+          config,
           periodStart,
           periodEnd,
           gasEnergyStatIds,
           period,
-          gasEnergyUnits,
-          ["change"]
+          gasEnergyUnits
         )
       : {};
   const _powerStats: Statistics | Promise<Statistics> = powerStatIds.length
@@ -750,14 +782,14 @@ const getEnergyData = async (
       : {};
 
   const _waterStats: Statistics | Promise<Statistics> = waterStatIds.length
-    ? fetchStatistics(
+    ? fetchChangeStatistics(
         callWS,
+        config,
         periodStart,
         periodEnd,
         waterStatIds,
         period,
-        waterUnits,
-        ["change"]
+        waterUnits
       )
     : {};
 
@@ -800,12 +832,12 @@ const getEnergyData = async (
     startCompare = shiftToCompare(start);
     // A period that is still running is compared with the elapsed part of the
     // previous one, so the totals cover the same amount of time.
-    endCompare =
-      compareToDate && (!end || end > now)
-        ? shiftToCompare(now)
-        : compare === CompareMode.YOY
-          ? shiftToCompare(end!)
-          : addMilliseconds(start, -1);
+    const toDate = compareToDate && (!end || end > now);
+    endCompare = toDate
+      ? shiftToCompare(now)
+      : compare === CompareMode.YOY
+        ? shiftToCompare(end!)
+        : addMilliseconds(start, -1);
     [periodStartCompare, periodEndCompare] = getStatisticsRange(
       locale,
       config,
@@ -813,37 +845,44 @@ const getEnergyData = async (
       startCompare,
       endCompare
     );
+    if (toDate) {
+      // `now` is an instant, not a wall time to move into the server's time
+      // zone, so the cutoff is the time elapsed since the fetched start.
+      periodEndCompare = new Date(
+        periodStartCompare.getTime() + (now.getTime() - periodStart.getTime())
+      );
+    }
     if (energyStatIds.length) {
-      _energyStatsCompare = fetchStatistics(
+      _energyStatsCompare = fetchChangeStatistics(
         callWS,
+        config,
         periodStartCompare,
         periodEndCompare,
         energyStatIds,
         period,
-        energyUnits,
-        ["change"]
+        energyUnits
       );
     }
     if (gasEnergyStatIds.length) {
-      _gasEnergyStatsCompare = fetchStatistics(
+      _gasEnergyStatsCompare = fetchChangeStatistics(
         callWS,
+        config,
         periodStartCompare,
         periodEndCompare,
         gasEnergyStatIds,
         period,
-        gasEnergyUnits,
-        ["change"]
+        gasEnergyUnits
       );
     }
     if (waterStatIds.length) {
-      _waterStatsCompare = fetchStatistics(
+      _waterStatsCompare = fetchChangeStatistics(
         callWS,
+        config,
         periodStartCompare,
         periodEndCompare,
         waterStatIds,
         period,
-        waterUnits,
-        ["change"]
+        waterUnits
       );
     }
   }

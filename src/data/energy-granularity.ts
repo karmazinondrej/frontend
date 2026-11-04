@@ -1,8 +1,12 @@
 import { TZDate } from "@date-fns/tz";
 import {
+  addDays,
+  addMonths,
   addWeeks,
   addYears,
   differenceInDays,
+  startOfDay,
+  startOfMonth,
   startOfWeek,
   startOfYear,
 } from "date-fns";
@@ -90,44 +94,50 @@ const needsRebucketing = (
 ): granularity is ClientGranularity =>
   FETCH_PERIOD[granularity] !== granularity;
 
-/**
- * Start and end of the week or year that contains a fetched bucket. Fetched
- * buckets are aligned to the server's calendar, so the coarser bucket is too.
- */
+type CalendarBucket = Exclude<EnergyGranularity, "hour">;
+
+/** A time as a date in the server's time zone, where core aligns buckets. */
+const toServerDate = (ms: number, timeZone: string): Date => {
+  const zoned = new TZDate(ms, timeZone);
+  // TZDate is invalid where Intl lacks "longOffset" (Chrome < 95, Safari < 15.4)
+  return Number.isNaN(zoned.getTime()) ? new Date(ms) : zoned;
+};
+
+/** Start and end of the calendar bucket that contains a time. */
 const getBucketRange = (
   startMs: number,
-  granularity: ClientGranularity,
+  granularity: CalendarBucket,
   config: HassConfig,
   weekStartsOn: WeekdayIndex
 ): [number, number] => {
-  const zoned = new TZDate(startMs, config.time_zone);
-  // TZDate is invalid where Intl lacks "longOffset" (Chrome < 95, Safari < 15.4)
-  const date = Number.isNaN(zoned.getTime()) ? new Date(startMs) : zoned;
-  const bucketStart =
-    granularity === "week"
-      ? startOfWeek(date, { weekStartsOn })
-      : startOfYear(date);
-  const bucketEnd =
-    granularity === "week"
-      ? addWeeks(bucketStart, 1)
-      : addYears(bucketStart, 1);
-  return [bucketStart.getTime(), bucketEnd.getTime()];
+  const date = toServerDate(startMs, config.time_zone);
+  switch (granularity) {
+    case "day": {
+      const bucketStart = startOfDay(date);
+      return [bucketStart.getTime(), addDays(bucketStart, 1).getTime()];
+    }
+    case "week": {
+      const bucketStart = startOfWeek(date, { weekStartsOn });
+      return [bucketStart.getTime(), addWeeks(bucketStart, 1).getTime()];
+    }
+    case "month": {
+      const bucketStart = startOfMonth(date);
+      return [bucketStart.getTime(), addMonths(bucketStart, 1).getTime()];
+    }
+    default: {
+      const bucketStart = startOfYear(date);
+      return [bucketStart.getTime(), addYears(bucketStart, 1).getTime()];
+    }
+  }
 };
 
-/**
- * Sums the `change` of fetched buckets into the granularity when core cannot
- * bucket it. Fetched buckets are sorted by start, so each coarse bucket is one
- * run of consecutive values.
- */
-export const rebucketStatistics = (
+/** Sums the `change` of sorted buckets into the calendar buckets they fall in. */
+const sumIntoBuckets = (
   statistics: Statistics,
-  granularity: EnergyGranularity,
+  granularity: CalendarBucket,
   config: HassConfig,
   weekStartsOn: WeekdayIndex
 ): Statistics => {
-  if (!needsRebucketing(granularity)) {
-    return statistics;
-  }
   const result: Statistics = {};
   for (const [statisticId, values] of Object.entries(statistics)) {
     const buckets: Statistics[string] = [];
@@ -149,6 +159,97 @@ export const rebucketStatistics = (
   }
   return result;
 };
+
+/** One `recorder/statistics_during_period` request. */
+export interface StatisticsRequest {
+  start: Date;
+  end?: Date;
+  period: EnergyFetchPeriod;
+}
+
+/**
+ * The requests that return the buckets of a range and nothing outside it.
+ * Core widens day and month requests to whole buckets, so an edge of the
+ * range that falls inside a bucket is requested hourly instead. Ranges end on
+ * the last millisecond of their final bucket, as the period selector sets
+ * them.
+ */
+export const planStatisticsRequests = (
+  start: Date,
+  end: Date | undefined,
+  period: EnergyFetchPeriod,
+  config: HassConfig
+): StatisticsRequest[] => {
+  if (period === "hour") {
+    return [{ start, end, period }];
+  }
+  const startMs = start.getTime();
+  const [firstStart, firstEnd] = getBucketRange(startMs, period, config, 1);
+  const innerStart = firstStart === startMs ? startMs : firstEnd;
+  let innerEnd: number | undefined;
+  let partialEnd = false;
+  if (end) {
+    const endMs = end.getTime();
+    const [lastStart, lastEnd] = getBucketRange(endMs, period, config, 1);
+    partialEnd = lastEnd - endMs > 1;
+    innerEnd = partialEnd ? lastStart : lastEnd;
+  }
+  if (innerEnd !== undefined && innerStart >= innerEnd) {
+    return [{ start, end, period: "hour" }];
+  }
+  const requests: StatisticsRequest[] = [];
+  if (innerStart > startMs) {
+    requests.push({ start, end: new Date(innerStart), period: "hour" });
+  }
+  requests.push({
+    start: new Date(innerStart),
+    // Core takes the end as inclusive and widens it to its bucket's end.
+    end: innerEnd === undefined ? undefined : new Date(innerEnd - 1),
+    period,
+  });
+  if (partialEnd) {
+    requests.push({ start: new Date(innerEnd!), end, period: "hour" });
+  }
+  return requests;
+};
+
+/** The statistics of planned requests joined into buckets of `period`. */
+export const joinStatisticsRequests = (
+  requests: StatisticsRequest[],
+  results: Statistics[],
+  period: EnergyFetchPeriod,
+  config: HassConfig
+): Statistics => {
+  if (requests.length === 1 && requests[0].period === period) {
+    return results[0];
+  }
+  const joined: Statistics = {};
+  results.forEach((result, i) => {
+    const buckets =
+      requests[i].period === period || period === "hour"
+        ? result
+        : sumIntoBuckets(result, period, config, 1);
+    for (const [statisticId, values] of Object.entries(buckets)) {
+      (joined[statisticId] ??= []).push(...values);
+    }
+  });
+  return joined;
+};
+
+/**
+ * Sums the `change` of fetched buckets into the granularity when core cannot
+ * bucket it. Fetched buckets are sorted by start, so each coarse bucket is one
+ * run of consecutive values.
+ */
+export const rebucketStatistics = (
+  statistics: Statistics,
+  granularity: EnergyGranularity,
+  config: HassConfig,
+  weekStartsOn: WeekdayIndex
+): Statistics =>
+  needsRebucketing(granularity)
+    ? sumIntoBuckets(statistics, granularity, config, weekStartsOn)
+    : statistics;
 
 /** Like `rebucketStatistics` for fossil energy, keyed by ISO time like core. */
 export const rebucketFossilEnergyConsumption = (

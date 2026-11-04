@@ -2008,8 +2008,21 @@ describe("getEnergyDataCollection statistics range", () => {
       data.endCompare!.getTime(),
       new Date("2026-08-28T12:00:00Z").getTime()
     );
-    // Day buckets are requested at the same wall-clock time in the server zone.
-    assert.equal(requests[1].end_time, "2026-08-28T09:00:00.000Z");
+    // The comparison runs as long as the current period has (since Sep 1 in
+    // Sofia): whole days, then the cut-off day hourly so it is not widened.
+    assert.deepEqual(
+      requests
+        .slice(1)
+        .map(({ period, start_time, end_time }) => [
+          period,
+          start_time,
+          end_time,
+        ]),
+      [
+        ["day", "2026-07-31T21:00:00.000Z", "2026-08-27T20:59:59.999Z"],
+        ["hour", "2026-08-27T21:00:00.000Z", "2026-08-28T12:00:00.000Z"],
+      ]
+    );
   });
 
   it("compares whole periods that already ended", async () => {

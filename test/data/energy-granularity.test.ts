@@ -2,6 +2,8 @@ import type { HassConfig } from "home-assistant-js-websocket";
 import { assert, describe, it } from "vitest";
 import {
   getEnergyGranularityOptions,
+  joinStatisticsRequests,
+  planStatisticsRequests,
   rebucketFossilEnergyConsumption,
   rebucketStatistics,
   resolveEnergyGranularity,
@@ -169,5 +171,100 @@ describe("rebucketFossilEnergyConsumption", () => {
         [new Date(day("2026-09-14")).toISOString()]: 6,
       }
     );
+  });
+});
+
+describe("planStatisticsRequests", () => {
+  const at = (iso: string) => new Date(iso);
+  const plan = (
+    start: string,
+    end: string | undefined,
+    period: "day" | "month"
+  ) =>
+    planStatisticsRequests(
+      at(start),
+      end === undefined ? undefined : at(end),
+      period,
+      config
+    ).map((request) => [
+      request.period,
+      request.start.toISOString(),
+      request.end?.toISOString(),
+    ]);
+
+  it("requests whole buckets as they are", () => {
+    assert.deepEqual(
+      plan("2026-08-31T21:00:00Z", "2026-09-30T20:59:59.999Z", "day"),
+      [["day", "2026-08-31T21:00:00.000Z", "2026-09-30T20:59:59.999Z"]]
+    );
+  });
+
+  it("requests the partial months at the edges hourly", () => {
+    // Apr 15 to Jun 15 in Sofia (UTC+3)
+    assert.deepEqual(
+      plan("2026-04-14T21:00:00Z", "2026-06-15T20:59:59.999Z", "month"),
+      [
+        ["hour", "2026-04-14T21:00:00.000Z", "2026-04-30T21:00:00.000Z"],
+        ["month", "2026-04-30T21:00:00.000Z", "2026-05-31T20:59:59.999Z"],
+        ["hour", "2026-05-31T21:00:00.000Z", "2026-06-15T20:59:59.999Z"],
+      ]
+    );
+  });
+
+  it("requests a range within one bucket hourly", () => {
+    assert.deepEqual(
+      plan("2026-05-14T21:00:00Z", "2026-06-15T20:59:59.999Z", "month"),
+      [["hour", "2026-05-14T21:00:00.000Z", "2026-06-15T20:59:59.999Z"]]
+    );
+  });
+
+  it("cuts a range off inside a day", () => {
+    assert.deepEqual(
+      plan("2026-07-31T21:00:00Z", "2026-08-28T12:00:00Z", "day"),
+      [
+        ["day", "2026-07-31T21:00:00.000Z", "2026-08-27T20:59:59.999Z"],
+        ["hour", "2026-08-27T21:00:00.000Z", "2026-08-28T12:00:00.000Z"],
+      ]
+    );
+  });
+
+  it("keeps an open end open", () => {
+    assert.deepEqual(plan("2026-08-14T21:00:00Z", undefined, "month"), [
+      ["hour", "2026-08-14T21:00:00.000Z", "2026-08-31T21:00:00.000Z"],
+      ["month", "2026-08-31T21:00:00.000Z", undefined],
+    ]);
+  });
+});
+
+describe("joinStatisticsRequests", () => {
+  it("sums hourly edges into the buckets of the period", () => {
+    const hour = 60 * 60 * 1000;
+    const hourly = (from: number, count: number) =>
+      Array.from({ length: count }, (_, i) => ({
+        start: from + i * hour,
+        end: from + (i + 1) * hour,
+        change: 1,
+      }));
+    const requests = planStatisticsRequests(
+      new Date("2026-08-31T21:00:00Z"),
+      new Date("2026-09-03T12:00:00Z"),
+      "day",
+      config
+    );
+    const joined = joinStatisticsRequests(
+      requests,
+      [
+        { "sensor.energy": [dayBucket("2026-09-01", 24)] },
+        { "sensor.energy": hourly(day("2026-09-03"), 15) },
+      ],
+      "day",
+      config
+    );
+    assert.deepEqual(joined, {
+      "sensor.energy": [
+        dayBucket("2026-09-01", 24),
+        dayBucket("2026-09-03", 15),
+      ],
+    });
   });
 });
