@@ -51,6 +51,17 @@ describe("getEnergyGranularityOptions", () => {
     );
   });
 
+  it("counts server days whose range spans a DST change", () => {
+    // October 2026 in Berlin is 31 days and one hour, seen from UTC.
+    assert.include(
+      getEnergyGranularityOptions(
+        new Date("2026-09-30T22:00:00Z"),
+        new Date("2026-10-31T22:59:59.999Z")
+      ),
+      "hour"
+    );
+  });
+
   it("treats an open end as ending now", () => {
     assert.deepEqual(
       getEnergyGranularityOptions(new Date(Date.now() - 60 * 60 * 1000)),

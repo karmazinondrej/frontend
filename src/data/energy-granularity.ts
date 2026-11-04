@@ -4,7 +4,6 @@ import {
   addMonths,
   addWeeks,
   addYears,
-  differenceInDays,
   startOfDay,
   startOfHour,
   startOfMonth,
@@ -46,6 +45,8 @@ const FETCH_PERIOD: Record<EnergyGranularity, EnergyFetchPeriod> = {
 // Upper bounds keep the bar count sane; lower bounds require at least one
 // whole bucket, so a coarse bucket never represents a sliver of the range.
 const MAX_HOURLY_DAYS = 31;
+const HOUR_MS = 60 * 60 * 1000;
+const DAY_MS = 24 * HOUR_MS;
 const MAX_DAILY_DAYS = 2 * 366;
 const MIN_DAYS: Partial<Record<EnergyGranularity, number>> = {
   week: 7,
@@ -62,7 +63,11 @@ export const getEnergyGranularityOptions = (
   start: Date,
   end?: Date
 ): EnergyGranularity[] => {
-  const days = differenceInDays(end || new Date(), start) + 1;
+  // Counted from the length of the range rather than the browser's calendar,
+  // where a range of server days can span an extra day around DST changes.
+  // The tolerance absorbs the hour a DST change adds or removes.
+  const length = (end ? end.getTime() + 1 : Date.now()) - start.getTime();
+  const days = Math.max(1, Math.ceil((length - 2 * HOUR_MS) / DAY_MS));
   return ENERGY_GRANULARITIES.filter((granularity) => {
     if (granularity === "hour") {
       return days <= MAX_HOURLY_DAYS;
