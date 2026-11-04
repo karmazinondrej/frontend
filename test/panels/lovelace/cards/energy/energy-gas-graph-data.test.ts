@@ -4,9 +4,12 @@
  * optimization pass — see test/benchmarks/README.md.
  */
 import { describe, expect, it } from "vitest";
-import type { BarSeriesOption } from "echarts/charts";
+import type { BarSeriesOption, LineSeriesOption } from "echarts/charts";
 import { generateEnergyGasGraphData } from "../../../../../src/panels/lovelace/cards/energy/energy-gas-graph-data";
-import type { EnergyPreferences } from "../../../../../src/data/energy";
+import type {
+  EnergyPreferences,
+  GasSourceTypeEnergyPreference,
+} from "../../../../../src/data/energy";
 import { createMockComputedStyle } from "../../../../fixtures/computed-style";
 import { digestResult } from "../../../../fixtures/digest";
 import {
@@ -17,6 +20,7 @@ import {
   generateEnergyData,
   generateEnergyPreferences,
 } from "../../../../fixtures/energy";
+import { generateStatistics } from "../../../../fixtures/statistics";
 
 // getEnergyColor resolves "--energy-gas-color" (and per-index variants) from
 // the computed style, so supply a deterministic base color for the palette.
@@ -24,8 +28,14 @@ const computedStyles = createMockComputedStyle({
   "--energy-gas-color": "#1b7ea0",
 });
 
-const { states, formatEntityName } = createMockHass();
-const baseParams = { states, formatEntityName, darkMode: false };
+const { localize, states, formatEntityName } = createMockHass();
+const baseParams = {
+  localize,
+  states,
+  formatEntityName,
+  darkMode: false,
+  temperatureUnit: "°C",
+};
 
 // Energy preferences with only gas sources (the card filters to type "gas").
 const gasOnlyPrefs = (sources: number): EnergyPreferences => ({
@@ -206,6 +216,46 @@ describe("generateEnergyGasGraphData", () => {
     ).toMatchSnapshot();
   });
 
+  it("draws the outdoor temperature on a second axis with degree days", () => {
+    const prefs = gasOnlyPrefs(1);
+    prefs.energy_sources[0] = {
+      ...(prefs.energy_sources[0] as GasSourceTypeEnergyPreference),
+      stat_outdoor_temperature: "sensor.outdoor_temperature",
+      heating_base_temperature: 25,
+    };
+    const energyData = generateEnergyData(2, {
+      days: 3,
+      period: "day",
+      prefs,
+      gapChance: 0,
+    });
+    const readings = generateStatistics(7, {
+      ids: ["sensor.outdoor_temperature"],
+      period: "day",
+      days: 3,
+      gapChance: 0,
+    })["sensor.outdoor_temperature"];
+    energyData.stats["sensor.outdoor_temperature"] = readings;
+
+    const result = generateEnergyGasGraphData({
+      ...baseParams,
+      energyData,
+      computedStyles,
+      now,
+    });
+
+    const line = result.chartData.find((dataset) => dataset.type === "line")!;
+    expect(line.id).toBe("temperature-sensor.outdoor_temperature");
+    expect(line.yAxisIndex).toBe(1);
+    expect(line.data).toHaveLength(3);
+    expect(result.temperatureUnit).toBe("°C");
+    expect(result.heatingBaseTemperature).toBe(25);
+    expect(result.heatingDegreeDays).toBeCloseTo(
+      readings.reduce((sum, point) => sum + Math.max(0, 25 - point.mean!), 0)
+    );
+    expect(digestResult(result)).toMatchSnapshot();
+  });
+
   it("sums all gas sources into one series when combinedName is set", () => {
     const energyData = generateEnergyData(12, {
       days: 1,
@@ -220,7 +270,7 @@ describe("generateEnergyGasGraphData", () => {
       combinedName: "Gas",
     });
 
-    const sumByX = (datasets: BarSeriesOption[]) => {
+    const sumByX = (datasets: (BarSeriesOption | LineSeriesOption)[]) => {
       const sums = new Map<number, number>();
       for (const dataset of datasets) {
         for (const item of dataset.data as any[]) {
@@ -230,7 +280,7 @@ describe("generateEnergyGasGraphData", () => {
       }
       return sums;
     };
-    const isCompare = (dataset: BarSeriesOption) =>
+    const isCompare = (dataset: BarSeriesOption | LineSeriesOption) =>
       String(dataset.id).startsWith("compare-");
 
     expect(

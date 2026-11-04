@@ -217,6 +217,11 @@ export interface GasSourceTypeEnergyPreference {
   number_energy_price: number | null;
   unit_of_measurement?: string | null;
 
+  // Outdoor temperature statistic, to relate gas usage to heating demand
+  stat_outdoor_temperature?: string;
+  // Temperature (°C) below which heating degree days accumulate
+  heating_base_temperature?: number;
+
   name?: string;
 }
 
@@ -511,6 +516,19 @@ export const getReferencedStatisticIds = (
   return statIDs;
 };
 
+/** Outdoor temperature statistics of the gas sources, without duplicates. */
+export const getReferencedStatisticIdsTemperature = (
+  prefs: EnergyPreferences
+): string[] => [
+  ...new Set(
+    prefs.energy_sources.flatMap((source) =>
+      source.type === "gas" && source.stat_outdoor_temperature
+        ? [source.stat_outdoor_temperature]
+        : []
+    )
+  ),
+];
+
 export const getReferencedStatisticIdsPower = (
   prefs: EnergyPreferences
 ): string[] => {
@@ -611,8 +629,14 @@ const getEnergyData = async (
   ]);
   const powerStatIds = getReferencedStatisticIdsPower(prefs);
   const waterStatIds = getReferencedStatisticIds(prefs, info, ["water"]);
+  const temperatureStatIds = getReferencedStatisticIdsTemperature(prefs);
 
-  const allStatIDs = [...energyStatIds, ...waterStatIds, ...powerStatIds];
+  const allStatIDs = [
+    ...energyStatIds,
+    ...waterStatIds,
+    ...powerStatIds,
+    ...temperatureStatIds,
+  ];
 
   const dayDifference = differenceInDays(end || new Date(), start);
 
@@ -730,6 +754,19 @@ const getEnergyData = async (
         ["change"]
       )
     : {};
+  // Degree days come from daily means, so months are fetched as days too.
+  const _temperatureStats: Statistics | Promise<Statistics> =
+    temperatureStatIds.length
+      ? fetchStatistics(
+          callWS,
+          periodStart,
+          periodEnd,
+          temperatureStatIds,
+          period === "hour" ? "hour" : "day",
+          { temperature: config.unit_system.temperature as "°C" | "°F" },
+          ["mean"]
+        )
+      : {};
 
   let statsCompare;
   let startCompare;
@@ -855,6 +892,7 @@ const getEnergyData = async (
     powerStats,
     powerStatsHour,
     waterStats,
+    temperatureStats,
     energyStatsCompare,
     gasEnergyStatsCompare,
     waterStatsCompare,
@@ -866,6 +904,7 @@ const getEnergyData = async (
     _powerStats,
     _powerStatsHour,
     _waterStats,
+    _temperatureStats,
     _energyStatsCompare,
     _gasEnergyStatsCompare,
     _waterStatsCompare,
@@ -908,6 +947,7 @@ const getEnergyData = async (
     ...gasEnergyStats,
     ...waterStats,
     ...powerStats,
+    ...temperatureStats,
   };
   if (compare) {
     statsCompare = {

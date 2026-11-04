@@ -1,4 +1,4 @@
-import type { BarSeriesOption } from "echarts/charts";
+import type { BarSeriesOption, LineSeriesOption } from "echarts/charts";
 import type { HassEntities } from "home-assistant-js-websocket";
 import { computeYAxisFractionDigits } from "../../../../components/chart/y-axis-fraction-digits";
 import { fillDataGapsAndRoundCaps } from "../../../../components/chart/round-caps";
@@ -7,6 +7,12 @@ import type {
   GasSourceTypeEnergyPreference,
 } from "../../../../data/energy";
 import { getSuggestedPeriod } from "../../../../data/energy";
+import {
+  computeHeatingBuckets,
+  convertCelsius,
+  DEFAULT_HEATING_BASE_TEMPERATURE,
+} from "../../../../data/energy-heating";
+import type { LocalizeFunc } from "../../../../common/translations/localize";
 import type { Statistics, StatisticsMetaData } from "../../../../data/recorder";
 import { getStatisticLabel } from "../../../../data/recorder";
 import type { HomeAssistant } from "../../../../types";
@@ -19,6 +25,7 @@ import {
 } from "./common/energy-chart-options";
 
 export interface EnergyGasGraphDataParams {
+  localize: LocalizeFunc;
   states: HassEntities;
   formatEntityName: HomeAssistant["formatEntityName"];
   darkMode: boolean;
@@ -26,6 +33,8 @@ export interface EnergyGasGraphDataParams {
   computedStyles: CSSStyleDeclaration;
   /** Current time, injected so the transform is deterministic. */
   now: Date;
+  /** Unit the outdoor temperature statistics were fetched in. */
+  temperatureUnit: string;
   /** Sums all gas sources into one series with this name. */
   combinedName?: string;
 }
@@ -36,7 +45,7 @@ type GasChartSource = Pick<
 >;
 
 export interface EnergyGasGraphData {
-  chartData: BarSeriesOption[];
+  chartData: (BarSeriesOption | LineSeriesOption)[];
   start: Date;
   end: Date;
   compareStart?: Date;
@@ -44,6 +53,12 @@ export interface EnergyGasGraphData {
   unit?: string;
   total?: number;
   yAxisFractionDigits: number;
+  /** Set when an outdoor temperature line is drawn on the second y-axis. */
+  temperatureUnit?: string;
+  /** Heating degree days over the period, from the outdoor temperature. */
+  heatingDegreeDays?: number;
+  /** Degree day base in `temperatureUnit`. */
+  heatingBaseTemperature?: number;
 }
 
 /**
@@ -140,8 +155,12 @@ export function generateEnergyGasGraphData(
     generateFillBuckets(datasets, start, end, period)
   );
   const yAxisFractionDigits = computeYAxisFractionDigits(yMin, yMax, true);
-  const chartData = datasets;
   const total = processTotal(energyData.stats, gasSources);
+  // After gap filling, which is meant for the bars only.
+  const heating = processHeating(params, period, gasSources);
+  const chartData: (BarSeriesOption | LineSeriesOption)[] = heating
+    ? [...datasets, heating.series]
+    : datasets;
 
   return {
     chartData,
@@ -152,7 +171,80 @@ export function generateEnergyGasGraphData(
     unit,
     total,
     yAxisFractionDigits,
+    ...(heating && {
+      temperatureUnit: params.temperatureUnit,
+      heatingDegreeDays: heating.degreeDays,
+      heatingBaseTemperature: heating.baseTemperature,
+    }),
   };
+}
+
+/**
+ * The outdoor temperature of the first gas source that has one, on the grid
+ * of that source's consumption buckets, with the degree days per bucket as the
+ * fourth tuple element for the tooltip.
+ */
+function processHeating(
+  {
+    localize,
+    energyData,
+    computedStyles,
+    temperatureUnit,
+  }: EnergyGasGraphDataParams,
+  period: ReturnType<typeof getSuggestedPeriod>,
+  gasSources: GasSourceTypeEnergyPreference[]
+) {
+  const source = gasSources.find(
+    (gasSource) =>
+      gasSource.stat_outdoor_temperature &&
+      gasSource.stat_outdoor_temperature in energyData.stats
+  );
+  if (!source) {
+    return undefined;
+  }
+  const statId = source.stat_outdoor_temperature!;
+  const buckets = energyData.stats[source.stat_energy_from] ?? [];
+  const baseTemperature = convertCelsius(
+    source.heating_base_temperature ?? DEFAULT_HEATING_BASE_TEMPERATURE,
+    temperatureUnit
+  );
+  const heating = computeHeatingBuckets(
+    energyData.stats[statId],
+    buckets,
+    baseTemperature
+  );
+  const center = period === "hour" || period === "5minute";
+  let degreeDays = 0;
+  const data: [number, number, number, number][] = [];
+  for (const bucket of buckets) {
+    const { temperature, degreeDays: bucketDegreeDays } = heating.get(
+      bucket.start
+    )!;
+    degreeDays += bucketDegreeDays;
+    if (temperature === undefined) {
+      continue;
+    }
+    data.push([
+      center ? (bucket.start + bucket.end) / 2 : bucket.start,
+      temperature,
+      bucket.start,
+      bucketDegreeDays,
+    ]);
+  }
+  const series: LineSeriesOption = {
+    id: "temperature-" + statId,
+    type: "line",
+    name: localize(
+      "ui.panel.lovelace.cards.energy.energy_gas_graph.outdoor_temperature"
+    ),
+    yAxisIndex: 1,
+    color: computedStyles.getPropertyValue("--primary-text-color"),
+    lineStyle: { width: 1.5 },
+    symbol: "none",
+    z: 3,
+    data,
+  };
+  return { series, degreeDays, baseTemperature };
 }
 
 function processTotal(
