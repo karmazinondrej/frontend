@@ -34,6 +34,13 @@ import { normalizeValueBySIPrefix } from "../common/number/normalize-by-si-prefi
 import { groupBy } from "../common/util/group-by";
 import type { HomeAssistant, HomeAssistantRegistries } from "../types";
 import { fileDownload } from "../util/file_download";
+import {
+  convertCelsius,
+  DEFAULT_HEATING_BASE_TEMPERATURE,
+  degreeDaysByBucket,
+  meanTemperatureByBucket,
+  mergeBuckets,
+} from "./energy-heating";
 import type {
   StatisticPeriod,
   Statistics,
@@ -2359,19 +2366,34 @@ export function getSuggestedPeriod(
 
 export const downloadEnergyData = (
   energyData: EnergyCollection,
-  currency: string
+  currency: string,
+  temperatureUnit: string
 ) => {
   const { state } = energyData;
   if (!energyData.prefs || !state?.stats) {
     return;
   }
+  const csv = getEnergyCsv(state, energyData.prefs, currency, temperatureUnit);
+  const blob = new Blob(csv, {
+    type: "text/csv",
+  });
+  const url = window.URL.createObjectURL(blob);
+  fileDownload(url, "energy.csv");
+};
 
+/** The lines of the energy CSV export: one row per statistic, one column per bucket. */
+export const getEnergyCsv = (
+  state: EnergyData,
+  prefs: EnergyPreferences,
+  currency: string,
+  temperatureUnit: string
+): string[] => {
   const gasUnit = state.gasUnit;
   const electricUnit = "kWh";
 
-  const energy_sources = energyData.prefs.energy_sources;
-  const device_consumption = energyData.prefs.device_consumption;
-  const device_consumption_water = energyData.prefs.device_consumption_water;
+  const energy_sources = prefs.energy_sources;
+  const device_consumption = prefs.device_consumption;
+  const device_consumption_water = prefs.device_consumption_water;
   const stats = state.stats;
 
   interface CsvRow {
@@ -2511,6 +2533,66 @@ export const downloadEnergyData = (
     "gas_consumption_cost",
     gas_consumptions_cost
   );
+
+  // Outdoor temperature and degree days on the grid of the gas buckets, so a
+  // spreadsheet can set consumption against the weather column by column.
+  // Degree days are a daily quantity, so hourly buckets carry none.
+  const hourly = getSuggestedPeriod(state.start, state.end) === "hour";
+  const exportedTemperatures = new Set<string>();
+  energy_sources
+    .filter((s) => s.type === "gas")
+    .forEach((source) => {
+      const {
+        stat_energy_from,
+        stat_outdoor_temperature,
+        heating_base_temperature,
+      } = source as GasSourceTypeEnergyPreference;
+      const readings =
+        stat_outdoor_temperature && stats[stat_outdoor_temperature];
+      if (!readings || exportedTemperatures.has(stat_outdoor_temperature)) {
+        return;
+      }
+      exportedTemperatures.add(stat_outdoor_temperature);
+      const buckets = mergeBuckets(
+        stats[stat_energy_from] ?? [],
+        hourly || getSuggestedPeriod(state.start, state.end) === "day"
+          ? readings
+          : []
+      );
+      processCsvRow(
+        stat_outdoor_temperature,
+        "outdoor_temperature",
+        temperatureUnit,
+        [...meanTemperatureByBucket(readings, buckets)].map(
+          ([start, mean]) => ({
+            start,
+            end: NaN,
+            change: mean,
+          })
+        )
+      );
+      if (hourly) {
+        return;
+      }
+      const degreeDays = degreeDaysByBucket(
+        state.dailyTemperatureStats?.[stat_outdoor_temperature] ?? [],
+        buckets,
+        convertCelsius(
+          heating_base_temperature ?? DEFAULT_HEATING_BASE_TEMPERATURE,
+          temperatureUnit
+        )
+      );
+      processCsvRow(
+        stat_outdoor_temperature,
+        "heating_degree_days",
+        "degree days",
+        [...degreeDays].map(([start, value]) => ({
+          start,
+          end: NaN,
+          change: value,
+        }))
+      );
+    });
 
   const water_consumptions: string[] = [];
   const water_consumptions_cost: string[] = [];
@@ -2668,9 +2750,5 @@ export const downloadEnergyData = (
     csv.push(row.join(",") + "\n");
   });
 
-  const blob = new Blob(csv, {
-    type: "text/csv",
-  });
-  const url = window.URL.createObjectURL(blob);
-  fileDownload(url, "energy.csv");
+  return csv;
 };
