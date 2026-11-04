@@ -177,6 +177,62 @@ const sumIntoBuckets = (
   return result;
 };
 
+/**
+ * Statistics of every type combined into calendar buckets, for when core
+ * cannot bucket them (it starts weeks on Monday): changes add up, means are
+ * averaged over the fetched buckets, extremes keep the extreme, and running
+ * values (`state`, `sum`, `last_reset`) keep the last one.
+ */
+export const aggregateStatistics = (
+  statistics: Statistics,
+  granularity: Exclude<EnergyGranularity, "hour">,
+  config: HassConfig,
+  weekStartsOn: WeekdayIndex
+): Statistics => {
+  const result: Statistics = {};
+  for (const [statisticId, values] of Object.entries(statistics)) {
+    const buckets: Statistics[string] = [];
+    let current: Statistics[string][number] | undefined;
+    let meanTotal = 0;
+    let meanCount = 0;
+    for (const value of values) {
+      if (!current || value.start >= current.end) {
+        const [start, end] = getBucketRange(
+          value.start,
+          granularity,
+          config,
+          weekStartsOn
+        );
+        current = { start, end };
+        meanTotal = 0;
+        meanCount = 0;
+        buckets.push(current);
+      }
+      if (value.change != null) {
+        current.change = (current.change ?? 0) + value.change;
+      }
+      if (value.min != null) {
+        current.min = Math.min(current.min ?? value.min, value.min);
+      }
+      if (value.max != null) {
+        current.max = Math.max(current.max ?? value.max, value.max);
+      }
+      if (value.mean != null) {
+        meanTotal += value.mean;
+        meanCount++;
+        current.mean = meanTotal / meanCount;
+      }
+      for (const key of ["state", "sum", "last_reset"] as const) {
+        if (value[key] !== undefined) {
+          current[key] = value[key];
+        }
+      }
+    }
+    result[statisticId] = buckets;
+  }
+  return result;
+};
+
 /** One `recorder/statistics_during_period` request. */
 export interface StatisticsRequest {
   start: Date;

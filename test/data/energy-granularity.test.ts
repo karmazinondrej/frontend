@@ -1,6 +1,7 @@
 import type { HassConfig } from "home-assistant-js-websocket";
 import { assert, describe, it } from "vitest";
 import {
+  aggregateStatistics,
   getEnergyGranularityOptions,
   joinStatisticsRequests,
   planStatisticsRequests,
@@ -277,5 +278,46 @@ describe("joinStatisticsRequests", () => {
         dayBucket("2026-09-03", 15),
       ],
     });
+  });
+});
+
+describe("aggregateStatistics", () => {
+  it("combines each statistic type into Sunday-first weeks", () => {
+    // Sat Sep 12, Sun Sep 13 and Mon Sep 14 in Sofia.
+    const values = [
+      { mean: 10, min: 5, max: 15, state: 1, sum: 1, change: 1 },
+      { mean: 20, min: 2, max: 30, state: 2, sum: 3, change: 2 },
+      { mean: 30, min: 4, max: 40, state: 3, sum: 6, change: 3 },
+    ].map((value, i) => ({
+      ...dayBucket(["2026-09-12", "2026-09-13", "2026-09-14"][i], 0),
+      ...value,
+    }));
+    assert.deepEqual(
+      aggregateStatistics({ "sensor.x": values }, "week", config, 0),
+      {
+        "sensor.x": [
+          {
+            start: day("2026-09-06"),
+            end: day("2026-09-13"),
+            mean: 10,
+            min: 5,
+            max: 15,
+            state: 1,
+            sum: 1,
+            change: 1,
+          },
+          {
+            start: day("2026-09-13"),
+            end: day("2026-09-20"),
+            mean: 25,
+            min: 2,
+            max: 40,
+            state: 3,
+            sum: 6,
+            change: 5,
+          },
+        ],
+      }
+    );
   });
 });
