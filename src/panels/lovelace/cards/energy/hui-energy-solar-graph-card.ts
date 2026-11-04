@@ -287,6 +287,7 @@ export class HuiEnergySolarGraphCard
       computedStyles: getComputedStyle(this),
       now: endOfToday(),
       weekStartsOn: firstWeekdayIndex(this._i18n.locale),
+      config: this._hassConfig,
       combineSources:
         this._config.combine_sources ?? energyData.combineSources ?? false,
     });

@@ -1,6 +1,5 @@
 import type { BarSeriesOption, LineSeriesOption } from "echarts/charts";
-import type { HassEntities } from "home-assistant-js-websocket";
-import { startOfWeek, startOfYear } from "date-fns";
+import type { HassConfig, HassEntities } from "home-assistant-js-websocket";
 import type { WeekdayIndex } from "../../../../common/datetime/weekday";
 import type { LocalizeFunc } from "../../../../common/translations/localize";
 import { computeYAxisFractionDigits } from "../../../../components/chart/y-axis-fraction-digits";
@@ -10,6 +9,7 @@ import type {
   SolarSourceTypeEnergyPreference,
 } from "../../../../data/energy";
 import type { EnergyGranularity } from "../../../../data/energy-granularity";
+import { getBucketStart } from "../../../../data/energy-granularity";
 import type { Statistics, StatisticsMetaData } from "../../../../data/recorder";
 import { getStatisticLabel } from "../../../../data/recorder";
 import type { HomeAssistant } from "../../../../types";
@@ -39,6 +39,8 @@ export interface EnergySolarGraphDataParams {
   now: Date;
   /** First day of the week, for bucketing forecasts into weeks. */
   weekStartsOn: WeekdayIndex;
+  /** Server config; forecasts are bucketed in its time zone, like statistics. */
+  config: HassConfig;
   combineSources?: boolean;
 }
 
@@ -333,35 +335,13 @@ function processDataSet(
   return data;
 }
 
-/** Start of the chart bucket (in the browser time zone) containing a date. */
-function floorToBucket(
-  date: Date,
-  period: EnergyGranularity,
-  weekStartsOn: WeekdayIndex
-): Date {
-  if (period === "hour") {
-    date.setMinutes(0, 0, 0);
-    return date;
-  }
-  if (period === "week") {
-    return startOfWeek(date, { weekStartsOn });
-  }
-  if (period === "year") {
-    return startOfYear(date);
-  }
-  if (period === "month") {
-    date.setDate(1);
-  }
-  date.setHours(0, 0, 0, 0);
-  return date;
-}
-
 function processForecast(
   {
     localize,
     states,
     formatEntityName,
     weekStartsOn,
+    config,
   }: EnergySolarGraphDataParams,
   statisticsMetaData: Record<string, StatisticsMetaData>,
   forecasts: EnergySolarForecasts,
@@ -388,7 +368,12 @@ function processForecast(
           if (dateObj < start || (end && dateObj > end)) {
             return;
           }
-          const time = floorToBucket(dateObj, period, weekStartsOn).getTime();
+          const time = getBucketStart(
+            dateObj.getTime(),
+            period,
+            config,
+            weekStartsOn
+          );
           if (time in forecastsData) {
             forecastsData[time] += value;
           } else {

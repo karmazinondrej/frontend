@@ -6,6 +6,7 @@ import {
   addYears,
   differenceInDays,
   startOfDay,
+  startOfHour,
   startOfMonth,
   startOfWeek,
   startOfYear,
@@ -130,6 +131,17 @@ const getBucketRange = (
     }
   }
 };
+
+/** Start of the chart bucket that contains a time, as core aligns it. */
+export const getBucketStart = (
+  ms: number,
+  granularity: EnergyGranularity,
+  config: HassConfig,
+  weekStartsOn: WeekdayIndex
+): number =>
+  granularity === "hour"
+    ? startOfHour(toServerDate(ms, config.time_zone)).getTime()
+    : getBucketRange(ms, granularity, config, weekStartsOn)[0];
 
 /** Sums the `change` of sorted buckets into the calendar buckets they fall in. */
 const sumIntoBuckets = (
