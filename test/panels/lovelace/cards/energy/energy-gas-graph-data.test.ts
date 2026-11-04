@@ -236,6 +236,9 @@ describe("generateEnergyGasGraphData", () => {
       gapChance: 0,
     })["sensor.outdoor_temperature"];
     energyData.stats["sensor.outdoor_temperature"] = readings;
+    energyData.dailyTemperatureStats = {
+      "sensor.outdoor_temperature": readings,
+    };
 
     const result = generateEnergyGasGraphData({
       ...baseParams,

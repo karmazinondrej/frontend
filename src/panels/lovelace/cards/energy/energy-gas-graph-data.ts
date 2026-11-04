@@ -8,9 +8,10 @@ import type {
 } from "../../../../data/energy";
 import { getSuggestedPeriod } from "../../../../data/energy";
 import {
-  computeHeatingBuckets,
   convertCelsius,
   DEFAULT_HEATING_BASE_TEMPERATURE,
+  degreeDaysByBucket,
+  meanTemperatureByBucket,
 } from "../../../../data/energy-heating";
 import type { LocalizeFunc } from "../../../../common/translations/localize";
 import type { Statistics, StatisticsMetaData } from "../../../../data/recorder";
@@ -181,8 +182,9 @@ export function generateEnergyGasGraphData(
 
 /**
  * The outdoor temperature of the first gas source that has one, on the grid
- * of that source's consumption buckets, with the degree days per bucket as the
- * fourth tuple element for the tooltip.
+ * of that source's consumption buckets. Buckets of at least a day carry their
+ * degree days as the fourth tuple element for the tooltip; degree days are a
+ * daily quantity, so hourly buckets only add up to the period total.
  */
 function processHeating(
   {
@@ -208,27 +210,33 @@ function processHeating(
     source.heating_base_temperature ?? DEFAULT_HEATING_BASE_TEMPERATURE,
     temperatureUnit
   );
-  const heating = computeHeatingBuckets(
+  const dailyReadings = energyData.dailyTemperatureStats?.[statId] ?? [];
+  const hourly = period === "hour" || period === "5minute";
+  const temperatures = meanTemperatureByBucket(
     energyData.stats[statId],
-    buckets,
-    baseTemperature
+    buckets
   );
-  const center = period === "hour" || period === "5minute";
-  let degreeDays = 0;
-  const data: [number, number, number, number][] = [];
+  const bucketDegreeDays = hourly
+    ? undefined
+    : degreeDaysByBucket(dailyReadings, buckets, baseTemperature);
+  const degreeDays = buckets.length
+    ? degreeDaysByBucket(
+        dailyReadings,
+        [{ start: buckets[0].start, end: buckets[buckets.length - 1].end }],
+        baseTemperature
+      ).get(buckets[0].start)!
+    : 0;
+  const data: [number, number, number, number?][] = [];
   for (const bucket of buckets) {
-    const { temperature, degreeDays: bucketDegreeDays } = heating.get(
-      bucket.start
-    )!;
-    degreeDays += bucketDegreeDays;
+    const temperature = temperatures.get(bucket.start);
     if (temperature === undefined) {
       continue;
     }
     data.push([
-      center ? (bucket.start + bucket.end) / 2 : bucket.start,
+      hourly ? (bucket.start + bucket.end) / 2 : bucket.start,
       temperature,
       bucket.start,
-      bucketDegreeDays,
+      bucketDegreeDays?.get(bucket.start),
     ]);
   }
   const series: LineSeriesOption = {

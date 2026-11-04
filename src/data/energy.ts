@@ -434,6 +434,8 @@ export interface EnergyData {
   statsMetadata: Record<string, StatisticsMetaData>;
   statsCompare: Statistics;
   co2SignalEntity?: string;
+  /** Daily means of the outdoor temperature statistics, for degree days. */
+  dailyTemperatureStats?: Statistics;
   fossilEnergyConsumption?: FossilEnergyConsumption;
   fossilEnergyConsumptionCompare?: FossilEnergyConsumption;
   waterUnit: string;
@@ -754,19 +756,42 @@ const getEnergyData = async (
         ["change"]
       )
     : {};
-  // Degree days come from daily means, so months are fetched as days too.
-  const _temperatureStats: Statistics | Promise<Statistics> =
+  // The temperature line follows the chart buckets; degree days always come
+  // from daily means, so hourly charts fetch both.
+  const temperatureUnits: StatisticsUnitConfiguration = {
+    temperature: config.unit_system.temperature as "°C" | "°F",
+  };
+  const [dayStart, dayEnd] = getStatisticsRange(
+    locale,
+    config,
+    "day",
+    start,
+    end
+  );
+  const _dailyTemperatureStats: Statistics | Promise<Statistics> =
     temperatureStatIds.length
+      ? fetchStatistics(
+          callWS,
+          dayStart,
+          dayEnd,
+          temperatureStatIds,
+          "day",
+          temperatureUnits,
+          ["mean"]
+        )
+      : {};
+  const _temperatureStats: Statistics | Promise<Statistics> =
+    temperatureStatIds.length && period === "hour"
       ? fetchStatistics(
           callWS,
           periodStart,
           periodEnd,
           temperatureStatIds,
-          period === "hour" ? "hour" : "day",
-          { temperature: config.unit_system.temperature as "°C" | "°F" },
+          "hour",
+          temperatureUnits,
           ["mean"]
         )
-      : {};
+      : _dailyTemperatureStats;
 
   let statsCompare;
   let startCompare;
@@ -893,6 +918,7 @@ const getEnergyData = async (
     powerStatsHour,
     waterStats,
     temperatureStats,
+    dailyTemperatureStats,
     energyStatsCompare,
     gasEnergyStatsCompare,
     waterStatsCompare,
@@ -905,6 +931,7 @@ const getEnergyData = async (
     _powerStatsHour,
     _waterStats,
     _temperatureStats,
+    _dailyTemperatureStats,
     _energyStatsCompare,
     _gasEnergyStatsCompare,
     _waterStatsCompare,
@@ -969,6 +996,7 @@ const getEnergyData = async (
     statsMetadata,
     statsCompare,
     co2SignalEntity,
+    dailyTemperatureStats,
     fossilEnergyConsumption,
     fossilEnergyConsumptionCompare,
     waterUnit,

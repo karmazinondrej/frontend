@@ -1,8 +1,9 @@
 import { assert, describe, it } from "vitest";
 import {
-  computeHeatingBuckets,
   convertCelsius,
   convertToCelsius,
+  degreeDaysByBucket,
+  meanTemperatureByBucket,
 } from "../../src/data/energy-heating";
 
 const HOUR = 60 * 60 * 1000;
@@ -23,51 +24,49 @@ describe("convertCelsius", () => {
   });
 });
 
-describe("computeHeatingBuckets", () => {
-  it("averages readings per bucket and counts degree days below the base", () => {
+describe("meanTemperatureByBucket", () => {
+  it("averages the readings that start in each bucket", () => {
     const buckets = [
       { start: 0, end: DAY },
       { start: DAY, end: 2 * DAY },
+      { start: 2 * DAY, end: 3 * DAY },
     ];
-    const readings = [reading(0, DAY, 5), reading(DAY, DAY, 20)];
-    const result = computeHeatingBuckets(readings, buckets, 15);
-    assert.deepEqual(result.get(0), { temperature: 5, degreeDays: 10 });
-    assert.deepEqual(result.get(DAY), { temperature: 20, degreeDays: 0 });
-  });
-
-  it("weights hourly readings so a day of hours equals one daily reading", () => {
-    const buckets = [{ start: 0, end: DAY }];
     const hourly = Array.from({ length: 24 }, (_, i) =>
       reading(i * HOUR, HOUR, i < 12 ? 0 : 10)
     );
-    const result = computeHeatingBuckets(hourly, buckets, 15)!.get(0)!;
-    assert.equal(result.temperature, 5);
-    assert.closeTo(result.degreeDays, 10, 1e-9);
+    const result = meanTemperatureByBucket(
+      [...hourly, reading(DAY, DAY, null), reading(2 * DAY, DAY, 7)],
+      buckets
+    );
+    assert.equal(result.get(0), 5);
+    assert.isFalse(result.has(DAY), "a bucket without a mean is left out");
+    assert.equal(result.get(2 * DAY), 7);
   });
+});
 
-  it("sums several daily readings into a longer bucket", () => {
-    const buckets = [{ start: 0, end: 3 * DAY }];
-    const readings = [
-      reading(0, DAY, 10),
-      reading(DAY, DAY, 12),
-      reading(2 * DAY, DAY, 14),
-    ];
-    const result = computeHeatingBuckets(readings, buckets, 15).get(0)!;
-    assert.equal(result.temperature, 12);
-    assert.equal(result.degreeDays, 5 + 3 + 1);
-  });
-
-  it("skips readings without a mean and buckets without readings", () => {
+describe("degreeDaysByBucket", () => {
+  it("counts how far each day stays below the base", () => {
     const buckets = [
       { start: 0, end: DAY },
       { start: DAY, end: 2 * DAY },
     ];
-    const readings = [reading(0, DAY, null), reading(2 * DAY, DAY, 1)];
-    const result = computeHeatingBuckets(readings, buckets, 15);
-    assert.deepEqual(result.get(0), { temperature: undefined, degreeDays: 0 });
-    assert.deepEqual(result.get(DAY), {
-      temperature: undefined,
-      degreeDays: 0,
-    });
+    const result = degreeDaysByBucket(
+      [reading(0, DAY, 12), reading(DAY, DAY, 20)],
+      buckets,
+      15
+    );
+    assert.equal(result.get(0), 3);
+    assert.equal(result.get(DAY), 0);
+  });
+
+  it("sums the days of a longer bucket and skips days without a mean", () => {
+    const days = [
+      reading(0, DAY, 10),
+      reading(DAY, DAY, null),
+      reading(2 * DAY, DAY, 14),
+      reading(3 * DAY, DAY, 16),
+    ];
+    const result = degreeDaysByBucket(days, [{ start: 0, end: 4 * DAY }], 15);
+    assert.equal(result.get(0), 5 + 1);
   });
 });

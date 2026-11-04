@@ -410,7 +410,12 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
     temperatureUnit: string,
     locale: FrontendLocaleData
   ) {
-    const [, temperature, , degreeDays] = param.value as number[];
+    const [, temperature, , degreeDays] = param.value as [
+      number,
+      number,
+      number,
+      number?,
+    ];
     return html`<ha-chart-tooltip-marker
         .color=${String(param.color ?? "")}
       ></ha-chart-tooltip-marker>
@@ -420,12 +425,18 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
           maximumFractionDigits: 1,
         })}
       </div>
-      <br />${this._i18n.localize(
-        "ui.panel.lovelace.cards.energy.energy_gas_graph.heating_degree_days"
-      )}:
-      <div style="direction:ltr; display: inline;">
-        ${formatNumber(degreeDays, locale, { maximumFractionDigits: 1 })}
-      </div>`;
+      ${
+        degreeDays === undefined
+          ? nothing
+          : html`<br />${this._i18n.localize(
+                "ui.panel.lovelace.cards.energy.energy_gas_graph.heating_degree_days"
+              )}:
+              <div style="direction:ltr; display: inline;">
+                ${formatNumber(degreeDays, locale, {
+                  maximumFractionDigits: 1,
+                })}
+              </div>`
+      }`;
   }
 
   private _getStatistics(energyData: EnergyData): void {
