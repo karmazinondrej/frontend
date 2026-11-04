@@ -764,7 +764,8 @@ export class HuiEnergyUsageGraphCard
       this._start,
       this._compareStart!,
       this._granularity,
-      firstWeekdayIndex(this._i18n.locale)
+      firstWeekdayIndex(this._i18n.locale),
+      this._hassConfig.time_zone
     );
 
     Object.entries(combinedData).forEach(([type, sources]) => {

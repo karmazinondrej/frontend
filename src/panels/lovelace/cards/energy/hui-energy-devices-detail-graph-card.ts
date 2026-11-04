@@ -334,6 +334,7 @@ export class HuiEnergyDevicesDetailGraphCard
     } = generateEnergyDevicesDetailGraphData({
       localize: this._i18n.localize,
       locale: this._i18n.locale,
+      timeZone: this._hassConfig.time_zone,
       states: this._states,
       formatEntityName: this._formatters.formatEntityName,
       darkMode: this._ui.themes.darkMode,

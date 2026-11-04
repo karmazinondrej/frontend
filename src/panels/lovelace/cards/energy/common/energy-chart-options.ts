@@ -1,3 +1,4 @@
+import { TZDate } from "@date-fns/tz";
 import type { HassConfig } from "home-assistant-js-websocket";
 import type { TemplateResult } from "lit";
 import { html, nothing } from "lit";
@@ -159,7 +160,8 @@ export function getCommonOptions(
       start,
       compareStart,
       period,
-      firstWeekdayIndex(locale)
+      firstWeekdayIndex(locale),
+      config.time_zone
     )(compareEnd);
     if (transformedCompareEnd.getTime() > suggestedMax.getTime()) {
       suggestedMax = getSuggestedMax(period, transformedCompareEnd, noRounding);
@@ -632,11 +634,23 @@ export function getCompareTransform(
   start: Date,
   compareStart?: Date,
   period?: StatisticPeriod,
-  weekStartsOn: WeekdayIndex = 1
+  weekStartsOn: WeekdayIndex = 1,
+  timeZone?: string
 ) {
   if (!compareStart) {
     return (ts: Date) => ts;
   }
+  // Buckets are aligned to the server's calendar, so they are shifted there:
+  // a week shifted in another zone that changes DST on other dates lands an
+  // hour off the main period's buckets.
+  const inZone = (ts: Date): Date => {
+    if (!timeZone) {
+      return ts;
+    }
+    const zoned = new TZDate(ts.getTime(), timeZone);
+    // TZDate is invalid where Intl lacks "longOffset" (Chrome < 95, Safari < 15.4)
+    return Number.isNaN(zoned.getTime()) ? ts : zoned;
+  };
   const compareDayDiff = differenceInDays(start, compareStart);
   // Coarse buckets line up with the main period's buckets only when shifted
   // by whole buckets: the previous month is 28–31 days, not a number of weeks.
@@ -646,15 +660,15 @@ export function getCompareTransform(
     const weeks = differenceInCalendarWeeks(start, compareStart, {
       weekStartsOn,
     });
-    return (ts: Date) => addWeeks(ts, weeks);
+    return (ts: Date) => addWeeks(inZone(ts), weeks);
   }
   if (period === "month") {
     const months = Math.round(compareDayDiff / 30.4);
-    return (ts: Date) => addMonths(ts, months);
+    return (ts: Date) => addMonths(inZone(ts), months);
   }
   if (period === "year") {
     const years = Math.round(compareDayDiff / 365);
-    return (ts: Date) => addYears(ts, years);
+    return (ts: Date) => addYears(inZone(ts), years);
   }
   const compareYearDiff = differenceInYears(start, compareStart);
   if (
@@ -664,10 +678,11 @@ export function getCompareTransform(
     // addYears clamps Feb 29 -> Feb 28 across leap-year boundaries; fall back
     // to a day-shift so each compare day keeps a unique x position.
     return (ts: Date) => {
-      const shifted = addYears(ts, compareYearDiff);
-      return shifted.getDate() === ts.getDate()
+      const zoned = inZone(ts);
+      const shifted = addYears(zoned, compareYearDiff);
+      return shifted.getDate() === zoned.getDate()
         ? shifted
-        : addDays(ts, compareDayDiff);
+        : addDays(zoned, compareDayDiff);
     };
   }
   const compareMonthDiff = differenceInMonths(start, compareStart);
@@ -678,14 +693,15 @@ export function getCompareTransform(
     // addMonths clamps Jan 31 -> Feb 28 when shifting between unequal-length
     // months; fall back to a day-shift so each compare day keeps a unique x.
     return (ts: Date) => {
-      const shifted = addMonths(ts, compareMonthDiff);
-      return shifted.getDate() === ts.getDate()
+      const zoned = inZone(ts);
+      const shifted = addMonths(zoned, compareMonthDiff);
+      return shifted.getDate() === zoned.getDate()
         ? shifted
-        : addDays(ts, compareDayDiff);
+        : addDays(zoned, compareDayDiff);
     };
   }
   if (compareDayDiff !== 0 && start.getTime() === startOfDay(start).getTime()) {
-    return (ts: Date) => addDays(ts, compareDayDiff);
+    return (ts: Date) => addDays(inZone(ts), compareDayDiff);
   }
   const compareOffset = start.getTime() - compareStart.getTime();
   return (ts: Date) => addMilliseconds(ts, compareOffset);

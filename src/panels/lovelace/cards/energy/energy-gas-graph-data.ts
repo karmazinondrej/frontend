@@ -27,6 +27,8 @@ export interface EnergyGasGraphDataParams {
   computedStyles: CSSStyleDeclaration;
   /** First day of the week the compare period is aligned by. */
   weekStartsOn?: WeekdayIndex;
+  /** Server time zone, where the compare period is shifted. */
+  timeZone?: string;
   /** Current time, injected so the transform is deterministic. */
   now: Date;
   /** Sums all gas sources into one series with this name. */
@@ -101,7 +103,8 @@ export function generateEnergyGasGraphData(
     start,
     compareStart!,
     period,
-    params.weekStartsOn
+    params.weekStartsOn,
+    params.timeZone
   );
 
   if (energyData.statsCompare) {

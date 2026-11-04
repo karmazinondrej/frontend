@@ -372,7 +372,8 @@ export class HuiEnergyWaterGraphCard
       this._start,
       this._compareStart!,
       period,
-      firstWeekdayIndex(this._i18n.locale)
+      firstWeekdayIndex(this._i18n.locale),
+      this._hassConfig.time_zone
     );
 
     waterSources.forEach((source, idx) => {

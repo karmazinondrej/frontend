@@ -833,6 +833,22 @@ describe("generateFillBuckets", () => {
 });
 
 describe("getCompareTransform", () => {
+  it("shifts compare weeks in the server's time zone", () => {
+    // Los Angeles leaves DST on Nov 1, 2026; the browser runs in UTC.
+    const start = new Date("2026-11-09T00:00:00-08:00");
+    const compareStart = new Date("2026-10-12T00:00:00-07:00");
+    assert.equal(
+      getCompareTransform(
+        start,
+        compareStart,
+        "week",
+        1,
+        "America/Los_Angeles"
+      )(compareStart).getTime(),
+      start.getTime()
+    );
+  });
+
   it("lines up the first compare week with the first main week", () => {
     const start = new Date(2026, 8, 1);
     const compareStart = new Date(2026, 7, 1);

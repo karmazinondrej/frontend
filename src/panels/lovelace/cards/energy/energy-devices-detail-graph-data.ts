@@ -41,6 +41,8 @@ const UNIT = "kWh";
 export interface EnergyDevicesDetailGraphDataParams {
   localize: LocalizeFunc;
   locale: FrontendLocaleData;
+  /** Server time zone, where the compare period is shifted. */
+  timeZone?: string;
   states: HassEntities;
   formatEntityName: HomeAssistantFormatters["formatEntityName"];
   darkMode: boolean;
@@ -82,6 +84,7 @@ interface ProcessContext {
   compareStart?: Date;
   granularity: EnergyGranularity;
   weekStartsOn: WeekdayIndex;
+  timeZone?: string;
   untrackedOrder: number;
   deviceLabels: Record<string, string>;
 }
@@ -102,7 +105,8 @@ function processDataSet(
     ctx.start,
     ctx.compareStart!,
     period,
-    ctx.weekStartsOn
+    ctx.weekStartsOn,
+    ctx.timeZone
   );
 
   // Lazily memoize a start -> change lookup per child stat so the per-point
@@ -242,7 +246,8 @@ function processUntracked(
     ctx.start,
     ctx.compareStart!,
     period,
-    ctx.weekStartsOn
+    ctx.weekStartsOn,
+    ctx.timeZone
   );
 
   // Split untracked into its positive part (genuine untracked consumption) and
@@ -363,6 +368,7 @@ export function generateEnergyDevicesDetailGraphData(
   const {
     localize,
     locale,
+    timeZone,
     states,
     formatEntityName,
     darkMode,
@@ -393,6 +399,7 @@ export function generateEnergyDevicesDetailGraphData(
     compareStart,
     granularity: energyData.granularity,
     weekStartsOn: firstWeekdayIndex(locale),
+    timeZone,
     untrackedOrder,
     deviceLabels: computeEnergyDeviceLabels(
       states,

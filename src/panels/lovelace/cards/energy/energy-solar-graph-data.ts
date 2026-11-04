@@ -95,7 +95,8 @@ export function generateEnergySolarGraphData(
     start,
     compareStart!,
     period,
-    params.weekStartsOn
+    params.weekStartsOn,
+    params.config.time_zone
   );
 
   const datasets: (BarSeriesOption | LineSeriesOption)[] = [];
