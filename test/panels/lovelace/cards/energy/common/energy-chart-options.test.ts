@@ -7,6 +7,7 @@ import {
   fillLineGaps,
   formatSeriesTotal,
   generateFillBuckets,
+  getCommonOptions,
   getCompareTransform,
   getPeriodMidpointOffset,
   getSuggestedMax,
@@ -1112,5 +1113,30 @@ describe("formatSeriesTotal", () => {
     };
 
     assert.equal(formatSeriesTotal(series, locale, "kWh"), "60\u00A0kWh");
+  });
+});
+
+describe("getCommonOptions coarse axis", () => {
+  const { locale, config } = createMockHass();
+  const xAxis = (start: Date, end: Date) =>
+    getCommonOptions(start, end, locale, config, "month").xAxis as {
+      axisLabel: { customValues?: number[] };
+      axisTick: { customValues?: number[] };
+    };
+
+  it("places the one tick of a single month", () => {
+    // The mock server is in Los Angeles.
+    const september = new Date("2026-09-01T00:00:00-07:00");
+    const axis = xAxis(september, new Date("2026-09-30T23:59:59.999-07:00"));
+    assert.deepEqual(axis.axisLabel.customValues, [september.getTime()]);
+    assert.deepEqual(axis.axisTick.customValues, [september.getTime()]);
+  });
+
+  it("leaves the ticks of several months to ECharts", () => {
+    const axis = xAxis(
+      new Date("2026-08-01T00:00:00-07:00"),
+      new Date("2026-09-30T23:59:59.999-07:00")
+    );
+    assert.isUndefined(axis.axisLabel.customValues);
   });
 });

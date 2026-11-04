@@ -286,11 +286,23 @@ function getCoarseTimeAxis(
             : differenceInCalendarYears(end, start),
           5
         );
+  const firstBucket = bucketStart(start);
+  const lastBucket = bucketStart(suggestedMax);
+  // ECharts fills an axis of one bucket with daily ticks, which the bucket
+  // formatter labels with the same name over and over; place the one tick.
+  const singleBucket =
+    firstBucket.getTime() === lastBucket.getTime()
+      ? [firstBucket.getTime()]
+      : undefined;
   return {
     type: "time",
-    min: subDays(bucketStart(start), padding),
-    max: addDays(bucketStart(suggestedMax), padding),
-    axisLabel: getPeriodicAxisLabelConfig(period, locale, config),
+    min: subDays(firstBucket, padding),
+    max: addDays(lastBucket, padding),
+    axisLabel: {
+      ...getPeriodicAxisLabelConfig(period, locale, config),
+      customValues: singleBucket,
+    },
+    axisTick: { customValues: singleBucket },
     splitNumber,
     // One tick per year, or a short year axis repeats the same label.
     minInterval: period === "year" ? 365 * 24 * 60 * 60 * 1000 : undefined,
