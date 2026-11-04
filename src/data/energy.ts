@@ -35,6 +35,13 @@ import { normalizeValueBySIPrefix } from "../common/number/normalize-by-si-prefi
 import { groupBy } from "../common/util/group-by";
 import type { HomeAssistant, HomeAssistantRegistries } from "../types";
 import { fileDownload } from "../util/file_download";
+import {
+  convertCelsius,
+  DEFAULT_HEATING_BASE_TEMPERATURE,
+  degreeDaysByBucket,
+  meanTemperatureByBucket,
+  mergeBuckets,
+} from "./energy-heating";
 import type {
   EnergyFetchPeriod,
   EnergyGranularity,
@@ -229,6 +236,11 @@ export interface GasSourceTypeEnergyPreference {
   entity_energy_price: string | null;
   number_energy_price: number | null;
   unit_of_measurement?: string | null;
+
+  // Outdoor temperature statistic, to relate gas usage to heating demand
+  stat_outdoor_temperature?: string;
+  // Temperature (°C) below which heating degree days accumulate
+  heating_base_temperature?: number;
 
   name?: string;
 }
@@ -445,6 +457,9 @@ export interface EnergyData {
   statsMetadata: Record<string, StatisticsMetaData>;
   statsCompare: Statistics;
   co2SignalEntity?: string;
+  /** Daily means of the outdoor temperature statistics, for degree days. */
+  dailyTemperatureStats?: Statistics;
+  dailyTemperatureStatsCompare?: Statistics;
   fossilEnergyConsumption?: FossilEnergyConsumption;
   fossilEnergyConsumptionCompare?: FossilEnergyConsumption;
   waterUnit: string;
@@ -526,6 +541,19 @@ export const getReferencedStatisticIds = (
 
   return statIDs;
 };
+
+/** Outdoor temperature statistics of the gas sources, without duplicates. */
+export const getReferencedStatisticIdsTemperature = (
+  prefs: EnergyPreferences
+): string[] => [
+  ...new Set(
+    prefs.energy_sources.flatMap((source) =>
+      source.type === "gas" && source.stat_outdoor_temperature
+        ? [source.stat_outdoor_temperature]
+        : []
+    )
+  ),
+];
 
 export const getReferencedStatisticIdsPower = (
   prefs: EnergyPreferences
@@ -666,8 +694,14 @@ const getEnergyData = async (
   ]);
   const powerStatIds = getReferencedStatisticIdsPower(prefs);
   const waterStatIds = getReferencedStatisticIds(prefs, info, ["water"]);
+  const temperatureStatIds = getReferencedStatisticIdsTemperature(prefs);
 
-  const allStatIDs = [...energyStatIds, ...waterStatIds, ...powerStatIds];
+  const allStatIDs = [
+    ...energyStatIds,
+    ...waterStatIds,
+    ...powerStatIds,
+    ...temperatureStatIds,
+  ];
 
   const now = new Date();
   const dayDifference = differenceInDays(end || now, start);
@@ -792,6 +826,39 @@ const getEnergyData = async (
         waterUnits
       )
     : {};
+  // The temperature line follows the chart buckets; degree days always come
+  // from daily means, so hourly charts fetch both.
+  const temperatureUnits: StatisticsUnitConfiguration = {
+    temperature: config.unit_system.temperature as "°C" | "°F",
+  };
+  const [dayStart, dayEnd] = getStatisticsRange(
+    locale,
+    config,
+    "day",
+    start,
+    end
+  );
+  const fetchTemperature = (
+    rangeStart: Date,
+    rangeEnd: Date | undefined,
+    fetchPeriod: "hour" | "day"
+  ): Statistics | Promise<Statistics> =>
+    temperatureStatIds.length
+      ? fetchStatistics(
+          callWS,
+          rangeStart,
+          rangeEnd,
+          temperatureStatIds,
+          fetchPeriod,
+          temperatureUnits,
+          ["mean"]
+        )
+      : {};
+  const _dailyTemperatureStats = fetchTemperature(dayStart, dayEnd, "day");
+  const _temperatureStats =
+    period === "hour"
+      ? fetchTemperature(periodStart, periodEnd, "hour")
+      : _dailyTemperatureStats;
 
   let statsCompare;
   let startCompare;
@@ -801,6 +868,8 @@ const getEnergyData = async (
   let _energyStatsCompare: Statistics | Promise<Statistics> = {};
   let _waterStatsCompare: Statistics | Promise<Statistics> = {};
   let _gasEnergyStatsCompare: Statistics | Promise<Statistics> = {};
+  let _temperatureStatsCompare: Statistics | Promise<Statistics> = {};
+  let _dailyTemperatureStatsCompare: Statistics | Promise<Statistics> = {};
   if (compare) {
     let shiftToCompare: (date: Date) => Date;
     if (compare === CompareMode.YOY) {
@@ -852,6 +921,22 @@ const getEnergyData = async (
         periodStartCompare.getTime() + (now.getTime() - periodStart.getTime())
       );
     }
+    const [dayStartCompare, dayEndCompare] = getStatisticsRange(
+      locale,
+      config,
+      "day",
+      startCompare,
+      endCompare
+    );
+    _dailyTemperatureStatsCompare = fetchTemperature(
+      dayStartCompare,
+      dayEndCompare,
+      "day"
+    );
+    _temperatureStatsCompare =
+      period === "hour"
+        ? fetchTemperature(periodStartCompare, periodEndCompare, "hour")
+        : _dailyTemperatureStatsCompare;
     if (energyStatIds.length) {
       _energyStatsCompare = fetchChangeStatistics(
         callWS,
@@ -917,9 +1002,13 @@ const getEnergyData = async (
     powerStats,
     powerStatsHour,
     waterStats,
+    temperatureStats,
+    dailyTemperatureStats,
     energyStatsCompare,
     gasEnergyStatsCompare,
     waterStatsCompare,
+    temperatureStatsCompare,
+    dailyTemperatureStatsCompare,
     fossilEnergyConsumption,
     fossilEnergyConsumptionCompare,
   ] = await Promise.all([
@@ -928,9 +1017,13 @@ const getEnergyData = async (
     _powerStats,
     _powerStatsHour,
     _waterStats,
+    _temperatureStats,
+    _dailyTemperatureStats,
     _energyStatsCompare,
     _gasEnergyStatsCompare,
     _waterStatsCompare,
+    _temperatureStatsCompare,
+    _dailyTemperatureStatsCompare,
     _fossilEnergyConsumption,
     _fossilEnergyConsumptionCompare,
   ]);
@@ -968,6 +1061,7 @@ const getEnergyData = async (
   // Power stays at its own fine period; only the energy buckets are coarsened.
   const weekStartsOn = firstWeekdayIndex(locale);
   const stats = {
+    ...temperatureStats,
     ...rebucketStatistics(
       { ...energyStats, ...gasEnergyStats, ...waterStats },
       granularity,
@@ -977,16 +1071,19 @@ const getEnergyData = async (
     ...powerStats,
   };
   if (compare) {
-    statsCompare = rebucketStatistics(
-      {
-        ...energyStatsCompare,
-        ...gasEnergyStatsCompare,
-        ...waterStatsCompare,
-      },
-      granularity,
-      config,
-      weekStartsOn
-    );
+    statsCompare = {
+      ...temperatureStatsCompare,
+      ...rebucketStatistics(
+        {
+          ...energyStatsCompare,
+          ...gasEnergyStatsCompare,
+          ...waterStatsCompare,
+        },
+        granularity,
+        config,
+        weekStartsOn
+      ),
+    };
   }
 
   const data: EnergyData = {
@@ -1003,6 +1100,10 @@ const getEnergyData = async (
     statsMetadata,
     statsCompare,
     co2SignalEntity,
+    dailyTemperatureStats,
+    dailyTemperatureStatsCompare: compare
+      ? dailyTemperatureStatsCompare
+      : undefined,
     fossilEnergyConsumption:
       fossilEnergyConsumption &&
       rebucketFossilEnergyConsumption(
@@ -2424,19 +2525,34 @@ export function getSuggestedPeriod(
 
 export const downloadEnergyData = (
   energyData: EnergyCollection,
-  currency: string
+  currency: string,
+  temperatureUnit: string
 ) => {
   const { state } = energyData;
   if (!energyData.prefs || !state?.stats) {
     return;
   }
+  const csv = getEnergyCsv(state, energyData.prefs, currency, temperatureUnit);
+  const blob = new Blob(csv, {
+    type: "text/csv",
+  });
+  const url = window.URL.createObjectURL(blob);
+  fileDownload(url, "energy.csv");
+};
 
+/** The lines of the energy CSV export: one row per statistic, one column per bucket. */
+export const getEnergyCsv = (
+  state: EnergyData,
+  prefs: EnergyPreferences,
+  currency: string,
+  temperatureUnit: string
+): string[] => {
   const gasUnit = state.gasUnit;
   const electricUnit = "kWh";
 
-  const energy_sources = energyData.prefs.energy_sources;
-  const device_consumption = energyData.prefs.device_consumption;
-  const device_consumption_water = energyData.prefs.device_consumption_water;
+  const energy_sources = prefs.energy_sources;
+  const device_consumption = prefs.device_consumption;
+  const device_consumption_water = prefs.device_consumption_water;
   const stats = state.stats;
 
   interface CsvRow {
@@ -2576,6 +2692,78 @@ export const downloadEnergyData = (
     "gas_consumption_cost",
     gas_consumptions_cost
   );
+
+  // Outdoor temperature and degree days on the grid of the gas buckets, so a
+  // spreadsheet can set consumption against the weather column by column.
+  // Degree days are a daily quantity, so hourly buckets carry none.
+  const hourly = state.granularity === "hour";
+  const exportedTemperatures = new Set<string>();
+  // Sources sharing a sensor can count degree days from different bases, so
+  // those rows are unique per sensor and base, which the unit names.
+  const exportedDegreeDays = new Set<string>();
+  energy_sources
+    .filter((s) => s.type === "gas")
+    .forEach((source) => {
+      const {
+        stat_energy_from,
+        stat_outdoor_temperature,
+        heating_base_temperature,
+      } = source as GasSourceTypeEnergyPreference;
+      const readings =
+        stat_outdoor_temperature && stats[stat_outdoor_temperature];
+      if (!readings) {
+        return;
+      }
+      const buckets = mergeBuckets(
+        stats[stat_energy_from] ?? [],
+        hourly || state.granularity === "day"
+          ? readings
+          : []
+      );
+      if (!exportedTemperatures.has(stat_outdoor_temperature)) {
+        exportedTemperatures.add(stat_outdoor_temperature);
+        processCsvRow(
+          stat_outdoor_temperature,
+          "outdoor_temperature",
+          temperatureUnit,
+          [...meanTemperatureByBucket(readings, buckets)].map(
+            ([start, mean]) => ({
+              start,
+              end: NaN,
+              change: mean,
+            })
+          )
+        );
+      }
+      if (hourly) {
+        return;
+      }
+      const baseTemperature = convertCelsius(
+        heating_base_temperature ?? DEFAULT_HEATING_BASE_TEMPERATURE,
+        temperatureUnit
+      );
+      const baseLabel = `${Math.round(baseTemperature * 10) / 10} ${temperatureUnit}`;
+      const degreeDaysKey = `${stat_outdoor_temperature} ${baseLabel}`;
+      if (exportedDegreeDays.has(degreeDaysKey)) {
+        return;
+      }
+      exportedDegreeDays.add(degreeDaysKey);
+      const degreeDays = degreeDaysByBucket(
+        state.dailyTemperatureStats?.[stat_outdoor_temperature] ?? [],
+        buckets,
+        baseTemperature
+      );
+      processCsvRow(
+        stat_outdoor_temperature,
+        "heating_degree_days",
+        `degree days (base ${baseLabel})`,
+        [...degreeDays].map(([start, value]) => ({
+          start,
+          end: NaN,
+          change: value,
+        }))
+      );
+    });
 
   const water_consumptions: string[] = [];
   const water_consumptions_cost: string[] = [];
@@ -2733,9 +2921,5 @@ export const downloadEnergyData = (
     csv.push(row.join(",") + "\n");
   });
 
-  const blob = new Blob(csv, {
-    type: "text/csv",
-  });
-  const url = window.URL.createObjectURL(blob);
-  fileDownload(url, "energy.csv");
+  return csv;
 };

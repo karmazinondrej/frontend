@@ -68,6 +68,40 @@ const generateMeanStatistics = (
   return statistics;
 };
 
+// Outdoor temperature with a yearly and a daily cycle, in °C.
+const generateTemperatureStatistics = (
+  start: Date,
+  end: Date,
+  period: "5minute" | "hour" | "day" | "month"
+): StatisticValue[] => {
+  const statistics: StatisticValue[] = [];
+  let currentDate = getFirstDate(start, period);
+  const now = new Date();
+  while (end > currentDate && currentDate < now) {
+    const nextDate = getNextDate(currentDate, period);
+    const dayOfYear =
+      (currentDate.getTime() -
+        new Date(currentDate.getFullYear(), 0, 1).getTime()) /
+      86400000;
+    const yearly = 10 - 10 * Math.cos(((dayOfYear - 20) / 365) * 2 * Math.PI);
+    const daily =
+      -3 * Math.cos(((currentDate.getHours() - 3) / 24) * 2 * Math.PI);
+    const mean = yearly + (period === "hour" ? daily : 0) + Math.random();
+    statistics.push({
+      start: currentDate.getTime(),
+      end: nextDate.getTime(),
+      mean,
+      min: mean - 2,
+      max: mean + 2,
+      last_reset: 0,
+      state: mean,
+      sum: null,
+    });
+    currentDate = nextDate;
+  }
+  return statistics;
+};
+
 const generateSumStatistics = (
   start: Date,
   end: Date,
@@ -149,6 +183,8 @@ const statisticsFunctions: Record<
     period: "5minute" | "hour" | "day" | "month"
   ) => StatisticValue[]
 > = {
+  "sensor.outdoor_temperature": (_id, start, end, period = "hour") =>
+    generateTemperatureStatistics(start, end, period),
   "sensor.energy_water": (_id, start, end, period = "hour") =>
     generateSumStatistics(
       start,

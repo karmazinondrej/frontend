@@ -4802,6 +4802,10 @@
               "gas_usage": "Gas consumption",
               "gas_flow_rate": "Gas flow rate",
               "flow_rate_para": "Optionally pick a sensor which measures the gas flow rate in either of {unit}.",
+              "outdoor_temperature": "Outdoor temperature",
+              "outdoor_temperature_para": "Optionally pick a sensor which measures the outdoor temperature, to see how the weather drives your gas consumption.",
+              "heating_base_temperature": "Heating base temperature",
+              "heating_base_temperature_para": "Degree days add up how far the daily mean outdoor temperature stays below this temperature. The default is 15.5 °C (59.9 °F).",
               "flow_rate_no_volume": "Home Assistant cannot calculate the gas volume from this flow rate, so pick a gas sensor above.",
               "flow_rate_energy_sources": "Your gas sources measure energy, which a flow rate cannot provide, so pick a gas sensor above.",
               "gas_sensor_needed": "To track your gas consumption, you need a gas sensor."
@@ -10154,7 +10158,12 @@
               "total_produced": "Total produced {num} kWh"
             },
             "energy_gas_graph": {
-              "total_consumed": "Total {num} {unit}"
+              "total_consumed": "Total {num} {unit}",
+              "outdoor_temperature": "[%key:ui::panel::config::energy::gas::dialog::outdoor_temperature%]",
+              "degree_days_row": "Degree days",
+              "degree_days": "{num} {count, plural,\n one {degree day}\n other {degree days}\n}",
+              "degree_days_tooltip": "{usage} per degree day (heating base {base})",
+              "degree_days_tooltip_compare": "{tooltip}. Previous period: {previous} {count, plural,\n one {degree day}\n other {degree days}\n}"
             },
             "energy_water_graph": {
               "total_consumed": "[%key:ui::panel::lovelace::cards::energy::energy_gas_graph::total_consumed%]"

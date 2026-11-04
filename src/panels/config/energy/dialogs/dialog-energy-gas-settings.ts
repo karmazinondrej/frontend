@@ -20,6 +20,14 @@ import {
   energyStatisticHelpUrl,
 } from "../../../../data/energy";
 import {
+  convertCelsius,
+  convertToCelsius,
+  DEFAULT_HEATING_BASE_TEMPERATURE,
+  isValidHeatingBaseTemperature,
+  MAX_HEATING_BASE_TEMPERATURE,
+  MIN_HEATING_BASE_TEMPERATURE,
+} from "../../../../data/energy-heating";
+import {
   getDisplayUnit,
   getStatisticLabel,
   getStatisticMetadata,
@@ -50,6 +58,8 @@ interface GasFormState {
 const gasDeviceClasses = ["gas", "energy"];
 const gasUnitClasses = ["volume", "energy"];
 const flowRateUnitClasses = ["volume_flow_rate"];
+const temperatureDeviceClasses = ["temperature"];
+const temperatureUnitClasses = ["temperature"];
 
 @customElement("dialog-energy-gas-settings")
 export class DialogEnergyGasSettings
@@ -67,6 +77,8 @@ export class DialogEnergyGasSettings
   @state() private _costs?: CostType;
 
   @state() private _numberPriceText = "";
+
+  @state() private _baseTemperatureText = "";
 
   @state() private _pickedDisplayUnit?: string | null;
 
@@ -93,6 +105,11 @@ export class DialogEnergyGasSettings
     this._source = params.source
       ? { ...params.source }
       : emptyGasEnergyPreference();
+    // A source saved without a base, e.g. through the API, gets the default.
+    if (this._source.stat_outdoor_temperature) {
+      this._source.heating_base_temperature ??=
+        DEFAULT_HEATING_BASE_TEMPERATURE;
+    }
     this._pickedDisplayUnit = getDisplayUnit(
       this.hass.states,
       params.source?.stat_energy_from,
@@ -110,6 +127,10 @@ export class DialogEnergyGasSettings
     this._numberPriceText =
       typeof this._source.number_energy_price === "number"
         ? String(this._source.number_energy_price)
+        : "";
+    this._baseTemperatureText =
+      typeof this._source.heating_base_temperature === "number"
+        ? this._formatBaseTemperature(this._source.heating_base_temperature)
         : "";
     this._energy_units = (
       await getSensorDeviceClassConvertibleUnits(this.hass, "energy")
@@ -238,6 +259,53 @@ export class DialogEnergyGasSettings
             { unit: this._flow_rate_units?.join(", ") || "" }
           )}
         ></ha-statistic-picker>
+
+        <ha-statistic-picker
+          statistic-types="mean"
+          .includeUnitClass=${temperatureUnitClasses}
+          .includeDeviceClass=${temperatureDeviceClasses}
+          .value=${this._source.stat_outdoor_temperature}
+          .label=${this.hass.localize(
+            "ui.panel.config.energy.gas.dialog.outdoor_temperature"
+          )}
+          @value-changed=${this._temperatureStatisticChanged}
+          .disabled=${this._saving}
+          .helper=${this.hass.localize(
+            "ui.panel.config.energy.gas.dialog.outdoor_temperature_para"
+          )}
+        ></ha-statistic-picker>
+        ${
+          this._source.stat_outdoor_temperature
+            ? html`<ha-input
+                class="base-temperature"
+                .label=${this.hass.localize(
+                  "ui.panel.config.energy.gas.dialog.heating_base_temperature"
+                )}
+                type="number"
+                step="any"
+                required
+                auto-validate
+                .min=${convertCelsius(
+                  MIN_HEATING_BASE_TEMPERATURE,
+                  this.hass.config.unit_system.temperature
+                )}
+                .max=${convertCelsius(
+                  MAX_HEATING_BASE_TEMPERATURE,
+                  this.hass.config.unit_system.temperature
+                )}
+                .disabled=${this._saving}
+                .value=${this._baseTemperatureText}
+                .hint=${this.hass.localize(
+                  "ui.panel.config.energy.gas.dialog.heating_base_temperature_para"
+                )}
+                @input=${this._baseTemperatureChanged}
+              >
+                <span slot="end"
+                  >${this.hass.config.unit_system.temperature}</span
+                >
+              </ha-input>`
+            : nothing
+        }
 
         <ha-input
           .label=${this.hass.localize(
@@ -373,6 +441,10 @@ export class DialogEnergyGasSettings
               !(this._source!.stat_energy_from || this._integralUnits()) ||
               (this._costs === "number" &&
                 typeof this._source!.number_energy_price !== "number") ||
+              (!!this._source!.stat_outdoor_temperature &&
+                !isValidHeatingBaseTemperature(
+                  this._source!.heating_base_temperature
+                )) ||
               (!!this._params?.source && !this.isDirtyState)
             }
             .loading=${this._saving}
@@ -431,6 +503,47 @@ export class DialogEnergyGasSettings
       ...this._source!,
       stat_rate: ev.detail.value || undefined,
     };
+    this._updateFormDirtyState();
+  }
+
+  private _formatBaseTemperature(celsius: number): string {
+    const unit = this.hass.config.unit_system.temperature;
+    return String(Math.round(convertCelsius(celsius, unit) * 10) / 10);
+  }
+
+  private _temperatureStatisticChanged(ev: ValueChangedEvent<string>) {
+    const source = { ...this._source! };
+    if (ev.detail.value) {
+      source.stat_outdoor_temperature = ev.detail.value;
+      source.heating_base_temperature ??= DEFAULT_HEATING_BASE_TEMPERATURE;
+      this._baseTemperatureText = this._formatBaseTemperature(
+        source.heating_base_temperature
+      );
+    } else {
+      delete source.stat_outdoor_temperature;
+      delete source.heating_base_temperature;
+      this._baseTemperatureText = "";
+    }
+    this._source = source;
+    this._updateFormDirtyState();
+  }
+
+  private _baseTemperatureChanged(ev: HASSDomCurrentTargetEvent<HaInput>) {
+    // Render the typed text so partial input such as "15." is not rewritten
+    this._baseTemperatureText = ev.currentTarget.value ?? "";
+    const value = parseFloat(this._baseTemperatureText);
+    const source = { ...this._source! };
+    if (Number.isNaN(value)) {
+      delete source.heating_base_temperature;
+    } else {
+      // Rounded so a value shown in °F stores the °C it was displayed from
+      source.heating_base_temperature =
+        Math.round(
+          convertToCelsius(value, this.hass.config.unit_system.temperature) *
+            100
+        ) / 100;
+    }
+    this._source = source;
     this._updateFormDirtyState();
   }
 
@@ -536,6 +649,12 @@ export class DialogEnergyGasSettings
   }
 
   private async _save() {
+    if (
+      this._source!.stat_outdoor_temperature &&
+      !isValidHeatingBaseTemperature(this._source!.heating_base_temperature)
+    ) {
+      return;
+    }
     // Closing or reopening the dialog replaces its state, but a created helper
     // must still be saved with the submitted source
     const params = this._params!;
@@ -636,6 +755,10 @@ export class DialogEnergyGasSettings
         .price-options {
           display: block;
           margin-top: var(--ha-space-3);
+        }
+        .base-temperature {
+          display: block;
+          margin-bottom: var(--ha-space-4);
         }
       `,
     ];

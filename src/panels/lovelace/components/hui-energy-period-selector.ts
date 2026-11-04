@@ -924,7 +924,11 @@ export class HuiEnergyPeriodSelector extends LitElement {
   private _downloadData() {
     const energyCollection = this._energyCollection.collection;
     if (!energyCollection) return;
-    downloadEnergyData(energyCollection, this._hassConfig.currency);
+    downloadEnergyData(
+      energyCollection,
+      this._hassConfig.currency,
+      this._hassConfig.unit_system.temperature
+    );
   }
 
   private _scheduleLoadingIndicator() {

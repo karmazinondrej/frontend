@@ -1,4 +1,4 @@
-import type { BarSeriesOption } from "echarts/charts";
+import type { BarSeriesOption, LineSeriesOption } from "echarts/charts";
 import type { HassEntities } from "home-assistant-js-websocket";
 import type { WeekdayIndex } from "../../../../common/datetime/weekday";
 import { computeYAxisFractionDigits } from "../../../../components/chart/y-axis-fraction-digits";
@@ -8,6 +8,15 @@ import type {
   GasSourceTypeEnergyPreference,
 } from "../../../../data/energy";
 import type { EnergyGranularity } from "../../../../data/energy-granularity";
+import {
+  convertCelsius,
+  DEFAULT_HEATING_BASE_TEMPERATURE,
+  degreeDaysByBucket,
+  meanTemperatureByBucket,
+  mergeBuckets,
+  totalDegreeDays,
+} from "../../../../data/energy-heating";
+import type { LocalizeFunc } from "../../../../common/translations/localize";
 import type { Statistics, StatisticsMetaData } from "../../../../data/recorder";
 import { getStatisticLabel } from "../../../../data/recorder";
 import type { HomeAssistant } from "../../../../types";
@@ -20,6 +29,7 @@ import {
 } from "./common/energy-chart-options";
 
 export interface EnergyGasGraphDataParams {
+  localize: LocalizeFunc;
   states: HassEntities;
   formatEntityName: HomeAssistant["formatEntityName"];
   darkMode: boolean;
@@ -31,6 +41,8 @@ export interface EnergyGasGraphDataParams {
   now: Date;
   /** Server time zone, which core aligns buckets to and comparisons shift in. */
   timeZone: string;
+  /** Unit the outdoor temperature statistics were fetched in. */
+  temperatureUnit: string;
   /** Sums all gas sources into one series with this name. */
   combinedName?: string;
 }
@@ -41,7 +53,7 @@ type GasChartSource = Pick<
 >;
 
 export interface EnergyGasGraphData {
-  chartData: BarSeriesOption[];
+  chartData: (BarSeriesOption | LineSeriesOption)[];
   start: Date;
   end: Date;
   compareStart?: Date;
@@ -50,6 +62,13 @@ export interface EnergyGasGraphData {
   unit?: string;
   total?: number;
   yAxisFractionDigits: number;
+  /** Set when an outdoor temperature line is drawn on the second y-axis. */
+  temperatureUnit?: string;
+  /** Heating degree days over the period, from the outdoor temperature. */
+  heatingDegreeDays?: number;
+  heatingDegreeDaysCompare?: number;
+  /** Degree day base in `temperatureUnit`. */
+  heatingBaseTemperature?: number;
 }
 
 /**
@@ -152,8 +171,12 @@ export function generateEnergyGasGraphData(
     generateFillBuckets(datasets, start, end, period, timeZone)
   );
   const yAxisFractionDigits = computeYAxisFractionDigits(yMin, yMax, true);
-  const chartData = datasets;
   const total = processTotal(energyData.stats, gasSources);
+  // After gap filling, which is meant for the bars only.
+  const heating = processHeating(params, compareTransform, period, gasSources);
+  const chartData: (BarSeriesOption | LineSeriesOption)[] = heating
+    ? [...datasets, ...heating.series]
+    : datasets;
 
   return {
     chartData,
@@ -165,6 +188,143 @@ export function generateEnergyGasGraphData(
     unit,
     total,
     yAxisFractionDigits,
+    ...(heating && {
+      temperatureUnit: params.temperatureUnit,
+      heatingDegreeDays: heating.degreeDays,
+      heatingDegreeDaysCompare: heating.compareDegreeDays,
+      heatingBaseTemperature: heating.baseTemperature,
+    }),
+  };
+}
+
+/**
+ * The outdoor temperature on the grid of the gas consumption buckets, for
+ * the main and the compare period. Gas sources normally share one outdoor
+ * sensor, so the first source with one is used. Buckets of at least a day
+ * carry their degree days as the fourth tuple element for the tooltip; degree
+ * days are a daily quantity, so the period totals come straight from the
+ * daily readings and hourly buckets carry none.
+ */
+function processHeating(
+  {
+    localize,
+    energyData,
+    computedStyles,
+    temperatureUnit,
+  }: EnergyGasGraphDataParams,
+  compareTransform: (ts: Date) => Date,
+  period: EnergyGranularity,
+  gasSources: GasSourceTypeEnergyPreference[]
+) {
+  const source = gasSources.find(
+    (gasSource) => gasSource.stat_outdoor_temperature
+  );
+  if (!source) {
+    return undefined;
+  }
+  const statId = source.stat_outdoor_temperature!;
+  const baseTemperature = convertCelsius(
+    source.heating_base_temperature ?? DEFAULT_HEATING_BASE_TEMPERATURE,
+    temperatureUnit
+  );
+  const hourly = period === "hour";
+  const name = localize(
+    "ui.panel.lovelace.cards.energy.energy_gas_graph.outdoor_temperature"
+  );
+
+  const heatingSeries = (
+    statistics: Statistics,
+    dailyStatistics: Statistics | undefined,
+    compare: boolean
+  ) => {
+    const readings = statistics[statId] ?? [];
+    // Hourly and daily readings share the gas grid, so they fill in buckets
+    // the gas sensor missed; coarser buckets follow the gas rows.
+    const buckets =
+      hourly || period === "day"
+        ? mergeBuckets(statistics[source.stat_energy_from] ?? [], readings)
+        : (statistics[source.stat_energy_from] ?? []);
+    const dailyReadings = dailyStatistics?.[statId] ?? [];
+    const temperatures = meanTemperatureByBucket(readings, buckets);
+    const bucketDegreeDays = hourly
+      ? undefined
+      : degreeDaysByBucket(dailyReadings, buckets, baseTemperature);
+    const degreeDays = totalDegreeDays(dailyReadings, baseTemperature);
+    const transform = compare ? compareTransform : undefined;
+    // A bucket without a reading breaks the line instead of being bridged.
+    const data: [number, number | null, number, number?][] = [];
+    let readingCount = 0;
+    for (const bucket of buckets) {
+      const temperature = temperatures.get(bucket.start) ?? null;
+      if (temperature !== null) {
+        readingCount++;
+      }
+      let x: number;
+      if (hourly) {
+        x = transform
+          ? (transform(new Date(bucket.start)).getTime() +
+              transform(new Date(bucket.end)).getTime()) /
+            2
+          : (bucket.start + bucket.end) / 2;
+      } else {
+        x = transform
+          ? transform(new Date(bucket.start)).getTime()
+          : bucket.start;
+      }
+      data.push([
+        x,
+        temperature,
+        bucket.start,
+        bucketDegreeDays?.get(bucket.start),
+      ]);
+    }
+    const isIsolated = (index: number) =>
+      data[index][1] !== null &&
+      (data[index - 1]?.[1] ?? null) === null &&
+      (data[index + 1]?.[1] ?? null) === null;
+    const series: LineSeriesOption = {
+      id: (compare ? "compare-temperature-" : "temperature-") + statId,
+      type: "line",
+      name,
+      yAxisIndex: 1,
+      color: computedStyles.getPropertyValue(
+        compare ? "--secondary-text-color" : "--primary-text-color"
+      ),
+      lineStyle: compare ? { width: 1.5, type: [7, 5] } : { width: 1.5 },
+      // A reading between gaps has no line to draw, so it gets a marker. The
+      // chart theme hides symbols, so they are switched on for this series.
+      showSymbol: true,
+      symbol: (_value: unknown, params: { dataIndex: number }) =>
+        isIsolated(params.dataIndex) ? "circle" : "none",
+      symbolSize: 8,
+      z: 3,
+      data,
+    };
+    return { series, degreeDays, readingCount };
+  };
+
+  const main = heatingSeries(
+    energyData.stats,
+    energyData.dailyTemperatureStats,
+    false
+  );
+  const compare = energyData.statsCompare
+    ? heatingSeries(
+        energyData.statsCompare,
+        energyData.dailyTemperatureStatsCompare,
+        true
+      )
+    : undefined;
+  if (!main.readingCount && !compare?.readingCount) {
+    return undefined;
+  }
+  return {
+    series: compare?.readingCount
+      ? [compare.series, main.series]
+      : [main.series],
+    degreeDays: main.degreeDays,
+    compareDegreeDays: compare?.degreeDays,
+    baseTemperature,
   };
 }
 

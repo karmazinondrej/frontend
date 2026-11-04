@@ -28,6 +28,7 @@ import {
   EMPTY_PREFERENCES,
   CompareMode,
   computeConsumptionData,
+  getEnergyCsv,
 } from "../../src/data/energy";
 import type {
   EnergyCollection,
@@ -41,6 +42,8 @@ import type { EntityRegistryDisplayEntry } from "../../src/data/entity/entity_re
 import { StatisticMeanType } from "../../src/data/recorder";
 import type { StatisticsMetaData } from "../../src/data/recorder";
 import { createMockEntityState, createMockHass } from "../fixtures/hass";
+import { generateEnergyData } from "../fixtures/energy";
+import { generateStatistics } from "../fixtures/statistics";
 
 const checkConsumptionResult = (
   input: {
@@ -2523,5 +2526,119 @@ describe("computeConsumptionData with a home meter", () => {
 
   it("never changes the measured grid value", () => {
     assert.equal(consumption.used_grid[1], baseline.used_grid[1]);
+  });
+});
+
+describe("getEnergyCsv", () => {
+  it("exports the outdoor temperature and degree days next to the gas", () => {
+    const prefs: EnergyPreferences = {
+      ...EMPTY_PREFERENCES,
+      energy_sources: [
+        {
+          type: "gas",
+          stat_energy_from: "sensor.gas",
+          stat_cost: null,
+          entity_energy_price: null,
+          number_energy_price: null,
+          stat_outdoor_temperature: "sensor.outdoor_temperature",
+          heating_base_temperature: 25,
+        },
+      ],
+    };
+    const energyData = generateEnergyData(1, {
+      days: 3,
+      period: "day",
+      prefs,
+      gapChance: 0,
+    });
+    const readings = generateStatistics(2, {
+      ids: ["sensor.outdoor_temperature"],
+      period: "day",
+      days: 3,
+      gapChance: 0,
+    })["sensor.outdoor_temperature"];
+    energyData.stats["sensor.outdoor_temperature"] = readings;
+    energyData.dailyTemperatureStats = {
+      "sensor.outdoor_temperature": readings,
+    };
+
+    const csv = getEnergyCsv(energyData, prefs, "EUR", "°C");
+    const rows = Object.fromEntries(
+      csv.slice(1).map((line) => {
+        const [id, type, unit, ...values] = line.trim().split(",");
+        return [type, { id, unit, values: values.map(Number) }];
+      })
+    );
+    assert.equal(csv[0].split(",").length - 3, 3);
+    assert.deepEqual(rows.outdoor_temperature, {
+      id: "sensor.outdoor_temperature",
+      unit: "°C".normalize("NFKD"),
+      values: readings.map((reading) => reading.mean),
+    });
+    assert.deepEqual(rows.heating_degree_days, {
+      id: "sensor.outdoor_temperature",
+      unit: "degree days (base 25 °C)".normalize("NFKD"),
+      values: readings.map((reading) => Math.max(0, 25 - reading.mean!)),
+    });
+  });
+
+  it("exports degree days for each base of a shared outdoor sensor", () => {
+    const gasSource = (statId: string, base: number) => ({
+      type: "gas" as const,
+      stat_energy_from: statId,
+      stat_cost: null,
+      entity_energy_price: null,
+      number_energy_price: null,
+      stat_outdoor_temperature: "sensor.outdoor_temperature",
+      heating_base_temperature: base,
+    });
+    const prefs: EnergyPreferences = {
+      ...EMPTY_PREFERENCES,
+      energy_sources: [
+        gasSource("sensor.gas", 15),
+        gasSource("sensor.gas_2", 20),
+        gasSource("sensor.gas_3", 15),
+      ],
+    };
+    const energyData = generateEnergyData(1, {
+      days: 3,
+      period: "day",
+      prefs,
+      gapChance: 0,
+    });
+    const readings = generateStatistics(2, {
+      ids: ["sensor.outdoor_temperature"],
+      period: "day",
+      days: 3,
+      gapChance: 0,
+    })["sensor.outdoor_temperature"];
+    energyData.stats["sensor.outdoor_temperature"] = readings;
+    energyData.dailyTemperatureStats = {
+      "sensor.outdoor_temperature": readings,
+    };
+
+    const rows = getEnergyCsv(energyData, prefs, "EUR", "°C")
+      .slice(1)
+      .map((line) => line.trim().split(","))
+      .filter(([id]) => id === "sensor.outdoor_temperature")
+      .map(([, type, unit, ...values]) => ({
+        type,
+        unit,
+        values: values.map(Number),
+      }));
+
+    // One temperature row, and one degree day row per distinct base.
+    assert.deepEqual(
+      rows.map(({ type, unit }) => [type, unit]),
+      [
+        ["outdoor_temperature", "°C".normalize("NFKD")],
+        ["heating_degree_days", "degree days (base 15 °C)".normalize("NFKD")],
+        ["heating_degree_days", "degree days (base 20 °C)".normalize("NFKD")],
+      ]
+    );
+    assert.deepEqual(
+      rows[2].values,
+      readings.map((reading) => Math.max(0, 20 - reading.mean!))
+    );
   });
 });

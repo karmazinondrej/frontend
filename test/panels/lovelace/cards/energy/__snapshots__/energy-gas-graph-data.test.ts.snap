@@ -1,5 +1,28 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`generateEnergyGasGraphData > draws the outdoor temperature on a second axis with degree days 1`] = `
+{
+  "keys": [
+    "chartData",
+    "compareEnd",
+    "compareStart",
+    "end",
+    "granularity",
+    "heatingBaseTemperature",
+    "heatingDegreeDays",
+    "heatingDegreeDaysCompare",
+    "start",
+    "temperatureUnit",
+    "total",
+    "unit",
+    "yAxisFractionDigits",
+  ],
+  "numberCount": 101,
+  "numberSum": "5.11207200004e+13",
+  "type": "object",
+}
+`;
+
 exports[`generateEnergyGasGraphData > handles no gas sources (empty placeholder dataset) 1`] = `
 {
   "chartData": [],

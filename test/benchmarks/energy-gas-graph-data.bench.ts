@@ -11,12 +11,14 @@ import { generateEnergyData } from "../fixtures/energy";
 const computedStyles = createMockComputedStyle({
   "--energy-gas-color": "#1b7ea0",
 });
-const { states, formatEntityName } = createMockHass();
+const { localize, states, formatEntityName } = createMockHass();
 const baseParams = {
+  localize,
   states,
   formatEntityName,
   darkMode: false,
   timeZone: "UTC",
+  temperatureUnit: "°C",
 };
 
 const now = new Date("2024-02-15T00:00:00Z");

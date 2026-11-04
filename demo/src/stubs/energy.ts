@@ -54,6 +54,8 @@ export const mockEnergy = (hass: MockHomeAssistant) => {
         stat_cost: "sensor.energy_gas_cost",
         entity_energy_price: null,
         number_energy_price: null,
+        stat_outdoor_temperature: "sensor.outdoor_temperature",
+        heating_base_temperature: 15.5,
       },
       {
         type: "water",

@@ -311,6 +311,40 @@ function getCoarseTimeAxis(
   };
 }
 
+/** The period of a tooltip, e.g. "Mon, Oct 5" or "14:00 – 15:00". */
+export function formatTooltipTitle(
+  date: Date,
+  locale: FrontendLocaleData,
+  config: HassConfig,
+  period: string,
+  compare: boolean | null,
+  showCompareYear: boolean,
+  bar: boolean
+): string {
+  if (period === "year") {
+    return formatDateYear(date, locale, config);
+  }
+  if (period === "month") {
+    return formatDateMonthYear(date, locale, config);
+  }
+  if (period === "week") {
+    const formatDate = showCompareYear ? formatDateShort : formatDateVeryShort;
+    return `${formatDate(date, locale, config)} – ${formatDate(addDays(date, 6), locale, config)}`;
+  }
+  if (period === "day") {
+    return showCompareYear
+      ? formatDateWeekdayShortDate(date, locale, config)
+      : formatDateWeekdayVeryShortDate(date, locale, config);
+  }
+  const prefix = compare
+    ? `${(showCompareYear ? formatDateShort : formatDateVeryShort)(date, locale, config)}: `
+    : "";
+  const time = formatTime(date, locale, config);
+  return bar
+    ? `${prefix}${time} – ${formatTime(addHours(date, 1), locale, config)}`
+    : `${prefix}${time}`;
+}
+
 function formatTooltip(
   params: CallbackDataParams[],
   locale: FrontendLocaleData,
@@ -329,29 +363,15 @@ function formatTooltip(
   // originalStart has the real date for display. Gap-filled entries lack it.
   const origDate = params.find((p) => p.value?.[2] != null)?.value?.[2];
   const date = new Date(origDate ?? params[0].value?.[0]);
-  let title: string;
-
-  if (period === "year") {
-    title = formatDateYear(date, locale, config);
-  } else if (period === "month") {
-    title = formatDateMonthYear(date, locale, config);
-  } else if (period === "week") {
-    const formatDate = showCompareYear ? formatDateShort : formatDateVeryShort;
-    title = `${formatDate(date, locale, config)} – ${formatDate(addDays(date, 6), locale, config)}`;
-  } else if (period === "day") {
-    title = showCompareYear
-      ? formatDateWeekdayShortDate(date, locale, config)
-      : formatDateWeekdayVeryShortDate(date, locale, config);
-  } else {
-    title = `${
-      compare
-        ? `${(showCompareYear ? formatDateShort : formatDateVeryShort)(date, locale, config)}: `
-        : ""
-    }${formatTime(date, locale, config)}`;
-    if (params[0].componentSubType === "bar") {
-      title += ` – ${formatTime(addHours(date, 1), locale, config)}`;
-    }
-  }
+  const title = formatTooltipTitle(
+    date,
+    locale,
+    config,
+    period,
+    compare,
+    showCompareYear,
+    params[0].componentSubType === "bar"
+  );
 
   let sumPositive = 0;
   let countPositive = 0;
