@@ -23,6 +23,7 @@ import {
   convertCelsius,
   convertToCelsius,
   DEFAULT_HEATING_BASE_TEMPERATURE,
+  isValidHeatingBaseTemperature,
   MAX_HEATING_BASE_TEMPERATURE,
   MIN_HEATING_BASE_TEMPERATURE,
 } from "../../../../data/energy-heating";
@@ -441,7 +442,9 @@ export class DialogEnergyGasSettings
               (this._costs === "number" &&
                 typeof this._source!.number_energy_price !== "number") ||
               (!!this._source!.stat_outdoor_temperature &&
-                typeof this._source!.heating_base_temperature !== "number") ||
+                !isValidHeatingBaseTemperature(
+                  this._source!.heating_base_temperature
+                )) ||
               (!!this._params?.source && !this.isDirtyState)
             }
             .loading=${this._saving}
@@ -646,6 +649,12 @@ export class DialogEnergyGasSettings
   }
 
   private async _save() {
+    if (
+      this._source!.stat_outdoor_temperature &&
+      !isValidHeatingBaseTemperature(this._source!.heating_base_temperature)
+    ) {
+      return;
+    }
     // Closing or reopening the dialog replaces its state, but a created helper
     // must still be saved with the submitted source
     const params = this._params!;

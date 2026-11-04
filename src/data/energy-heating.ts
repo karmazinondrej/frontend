@@ -4,8 +4,15 @@ import type { StatisticValue } from "./recorder";
 export const DEFAULT_HEATING_BASE_TEMPERATURE = 15.5;
 
 /** Bounds of the base in °C, as the backend schema enforces them. */
-export const MIN_HEATING_BASE_TEMPERATURE = -50;
-export const MAX_HEATING_BASE_TEMPERATURE = 50;
+export const MIN_HEATING_BASE_TEMPERATURE = 0;
+export const MAX_HEATING_BASE_TEMPERATURE = 30;
+
+/** Whether a stored base (°C) is one the backend accepts. */
+export const isValidHeatingBaseTemperature = (celsius: unknown): boolean =>
+  typeof celsius === "number" &&
+  Number.isFinite(celsius) &&
+  celsius >= MIN_HEATING_BASE_TEMPERATURE &&
+  celsius <= MAX_HEATING_BASE_TEMPERATURE;
 
 /** A base temperature stored in °C in the unit the dashboard shows. */
 export const convertCelsius = (celsius: number, unit: string): number =>

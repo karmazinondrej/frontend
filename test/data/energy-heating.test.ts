@@ -3,6 +3,7 @@ import {
   convertCelsius,
   convertToCelsius,
   degreeDaysByBucket,
+  isValidHeatingBaseTemperature,
   meanTemperatureByBucket,
   mergeBuckets,
   totalDegreeDays,
@@ -23,6 +24,17 @@ describe("convertCelsius", () => {
     assert.equal(convertCelsius(15.5, "°F"), 59.9);
     assert.equal(convertToCelsius(59.9, "°F"), 15.5);
     assert.equal(convertToCelsius(15.5, "°C"), 15.5);
+  });
+});
+
+describe("isValidHeatingBaseTemperature", () => {
+  it("accepts only the range the backend schema accepts", () => {
+    assert.isTrue(isValidHeatingBaseTemperature(0));
+    assert.isTrue(isValidHeatingBaseTemperature(30));
+    assert.isFalse(isValidHeatingBaseTemperature(-0.01));
+    assert.isFalse(isValidHeatingBaseTemperature(30.01));
+    assert.isFalse(isValidHeatingBaseTemperature(NaN));
+    assert.isFalse(isValidHeatingBaseTemperature(undefined));
   });
 });
 
