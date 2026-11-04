@@ -23,6 +23,8 @@ import {
   convertCelsius,
   convertToCelsius,
   DEFAULT_HEATING_BASE_TEMPERATURE,
+  MAX_HEATING_BASE_TEMPERATURE,
+  MIN_HEATING_BASE_TEMPERATURE,
 } from "../../../../data/energy-heating";
 import {
   getDisplayUnit,
@@ -282,6 +284,14 @@ export class DialogEnergyGasSettings
                 step="any"
                 required
                 auto-validate
+                .min=${convertCelsius(
+                  MIN_HEATING_BASE_TEMPERATURE,
+                  this.hass.config.unit_system.temperature
+                )}
+                .max=${convertCelsius(
+                  MAX_HEATING_BASE_TEMPERATURE,
+                  this.hass.config.unit_system.temperature
+                )}
                 .disabled=${this._saving}
                 .value=${this._baseTemperatureText}
                 .hint=${this.hass.localize(

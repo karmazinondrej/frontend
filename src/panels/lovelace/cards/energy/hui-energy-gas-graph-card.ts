@@ -257,6 +257,7 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
                                 this._i18n.locale,
                                 { maximumFractionDigits: 0 }
                               ),
+                              count: Math.round(this._heatingDegreeDays),
                             }
                           )}
                         </hui-energy-graph-chip>`
@@ -336,14 +337,18 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
     if (this._heatingDegreeDaysCompare === undefined) {
       return tooltip;
     }
-    return `${tooltip} · ${this._i18n.localize(
-      "ui.panel.lovelace.cards.energy.energy_gas_graph.previous_degree_days",
+    return this._i18n.localize(
+      "ui.panel.lovelace.cards.energy.energy_gas_graph.degree_days_tooltip_compare",
       {
-        num: formatNumber(this._heatingDegreeDaysCompare, this._i18n.locale, {
-          maximumFractionDigits: 0,
-        }),
+        tooltip,
+        previous: formatNumber(
+          this._heatingDegreeDaysCompare,
+          this._i18n.locale,
+          { maximumFractionDigits: 0 }
+        ),
+        count: Math.round(this._heatingDegreeDaysCompare),
       }
-    )}`;
+    );
   }
 
   private _createOptions = memoizeOne(
@@ -370,9 +375,6 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
         false,
         yAxisFractionDigits
       );
-      if (!temperatureUnit) {
-        return commonOptions;
-      }
       const tooltip = commonOptions.tooltip;
       const baseFormatter =
         tooltip &&
@@ -398,7 +400,7 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
         }
         const rows = this._renderTemperatureRows(
           temperature,
-          temperatureUnit,
+          temperatureUnit!,
           locale
         );
         if (base !== nothing) {
@@ -416,12 +418,16 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
         return html`<h4 style="text-align: center; margin: 0;">${title}</h4>
           ${rows}`;
       };
+      // ECharts only replaces series between updates, so the second axis is
+      // always declared and hidden while no temperature is drawn; otherwise
+      // it would linger after paging to a period without readings.
       return {
         ...commonOptions,
         yAxis: [
           commonOptions.yAxis,
           {
             type: "value",
+            show: temperatureUnit !== undefined,
             name: temperatureUnit,
             nameGap: 2,
             nameTextStyle: { align: "right" },
@@ -545,12 +551,15 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
     }
     .card-header {
       display: flex;
+      flex-wrap: wrap;
       justify-content: space-between;
       align-items: center;
+      gap: var(--ha-space-2);
       padding-bottom: 0;
     }
     .chips {
       display: flex;
+      flex-shrink: 0;
       gap: var(--ha-space-2);
     }
     .content {

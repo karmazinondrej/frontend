@@ -322,6 +322,49 @@ describe("generateEnergyGasGraphData", () => {
     expect(line.symbol).toBe("circle");
   });
 
+  it("draws the temperature where the gas sensor has no rows", () => {
+    const prefs = gasOnlyPrefs(1);
+    prefs.energy_sources[0] = {
+      ...(prefs.energy_sources[0] as GasSourceTypeEnergyPreference),
+      stat_outdoor_temperature: "sensor.outdoor_temperature",
+    };
+    const energyData = generateEnergyData(3, {
+      days: 3,
+      period: "day",
+      prefs,
+      gapChance: 0,
+    });
+    const readings = generateStatistics(9, {
+      ids: ["sensor.outdoor_temperature"],
+      period: "day",
+      days: 3,
+      gapChance: 0,
+    })["sensor.outdoor_temperature"];
+    energyData.stats["sensor.outdoor_temperature"] = readings;
+    energyData.dailyTemperatureStats = {
+      "sensor.outdoor_temperature": readings,
+    };
+    // The gas sensor was unavailable on the second day.
+    energyData.stats[prefs.energy_sources[0].stat_energy_from].splice(1, 1);
+
+    const result = generateEnergyGasGraphData({
+      ...baseParams,
+      energyData,
+      computedStyles,
+      now,
+    });
+
+    const line = result.chartData.find(
+      (dataset) => dataset.id === "temperature-sensor.outdoor_temperature"
+    ) as LineSeriesOption;
+    expect(
+      (line.data as [number, number | null][]).map(([x, temperature]) => [
+        x,
+        temperature !== null,
+      ])
+    ).toEqual(readings.map((reading) => [reading.start, true]));
+  });
+
   it("counts degree days from the daily readings, not the gas buckets", () => {
     const prefs = gasOnlyPrefs(1);
     prefs.energy_sources[0] = {

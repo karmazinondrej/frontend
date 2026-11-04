@@ -4,6 +4,7 @@ import {
   convertToCelsius,
   degreeDaysByBucket,
   meanTemperatureByBucket,
+  mergeBuckets,
   totalDegreeDays,
 } from "../../src/data/energy-heating";
 
@@ -51,6 +52,25 @@ describe("meanTemperatureByBucket", () => {
     assert.equal(result.get(0), 5);
     assert.isFalse(result.has(DAY), "a bucket without a mean is left out");
     assert.equal(result.get(2 * DAY), 7);
+  });
+});
+
+describe("mergeBuckets", () => {
+  it("merges two sorted bucket lists by start without duplicates", () => {
+    const gas = [
+      { start: 0, end: DAY },
+      { start: 2 * DAY, end: 3 * DAY },
+    ];
+    const readings = [
+      { start: DAY, end: 2 * DAY },
+      { start: 2 * DAY, end: 3 * DAY },
+      { start: 3 * DAY, end: 4 * DAY },
+    ];
+    assert.deepEqual(
+      mergeBuckets(gas, readings).map((bucket) => bucket.start),
+      [0, DAY, 2 * DAY, 3 * DAY]
+    );
+    assert.deepEqual(mergeBuckets([], readings), readings);
   });
 });
 

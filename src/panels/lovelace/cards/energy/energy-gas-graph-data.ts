@@ -12,6 +12,7 @@ import {
   DEFAULT_HEATING_BASE_TEMPERATURE,
   degreeDaysByBucket,
   meanTemperatureByBucket,
+  mergeBuckets,
   totalDegreeDays,
 } from "../../../../data/energy-heating";
 import type { LocalizeFunc } from "../../../../common/translations/localize";
@@ -223,12 +224,15 @@ function processHeating(
     dailyStatistics: Statistics | undefined,
     compare: boolean
   ) => {
-    const buckets = statistics[source.stat_energy_from] ?? [];
+    const readings = statistics[statId] ?? [];
+    // Hourly and daily readings share the gas grid, so they fill in buckets
+    // the gas sensor missed; coarser buckets follow the gas rows.
+    const buckets =
+      hourly || period === "day"
+        ? mergeBuckets(statistics[source.stat_energy_from] ?? [], readings)
+        : (statistics[source.stat_energy_from] ?? []);
     const dailyReadings = dailyStatistics?.[statId] ?? [];
-    const temperatures = meanTemperatureByBucket(
-      statistics[statId] ?? [],
-      buckets
-    );
+    const temperatures = meanTemperatureByBucket(readings, buckets);
     const bucketDegreeDays = hourly
       ? undefined
       : degreeDaysByBucket(dailyReadings, buckets, baseTemperature);

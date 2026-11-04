@@ -3,6 +3,10 @@ import type { StatisticValue } from "./recorder";
 /** Below 15.5 °C most homes start heating; a common degree day base. */
 export const DEFAULT_HEATING_BASE_TEMPERATURE = 15.5;
 
+/** Bounds of the base in °C, as the backend schema enforces them. */
+export const MIN_HEATING_BASE_TEMPERATURE = -50;
+export const MAX_HEATING_BASE_TEMPERATURE = 50;
+
 /** A base temperature stored in °C in the unit the dashboard shows. */
 export const convertCelsius = (celsius: number, unit: string): number =>
   unit === "°F" ? (celsius * 9) / 5 + 32 : celsius;
@@ -12,6 +16,24 @@ export const convertToCelsius = (value: number, unit: string): number =>
   unit === "°F" ? ((value - 32) * 5) / 9 : value;
 
 type Bucket = Pick<StatisticValue, "start" | "end">;
+
+/** The buckets of two sorted series merged by start, without duplicates. */
+export const mergeBuckets = (first: Bucket[], second: Bucket[]): Bucket[] => {
+  const merged: Bucket[] = [];
+  let i = 0;
+  let j = 0;
+  while (i < first.length || j < second.length) {
+    const next =
+      j >= second.length ||
+      (i < first.length && first[i].start <= second[j].start)
+        ? first[i++]
+        : second[j++];
+    if (!merged.length || merged[merged.length - 1].start !== next.start) {
+      merged.push({ start: next.start, end: next.end });
+    }
+  }
+  return merged;
+};
 
 /**
  * Groups readings by the bucket their start falls in. Readings and buckets

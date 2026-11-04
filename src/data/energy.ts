@@ -990,18 +990,18 @@ const getEnergyData = async (
   }
 
   const stats = {
+    ...temperatureStats,
     ...energyStats,
     ...gasEnergyStats,
     ...waterStats,
     ...powerStats,
-    ...temperatureStats,
   };
   if (compare) {
     statsCompare = {
+      ...temperatureStatsCompare,
       ...energyStatsCompare,
       ...gasEnergyStatsCompare,
       ...waterStatsCompare,
-      ...temperatureStatsCompare,
     };
   }
 
