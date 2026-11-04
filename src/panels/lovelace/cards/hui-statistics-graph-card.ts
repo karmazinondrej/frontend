@@ -1,5 +1,5 @@
 import { differenceInDays, subHours } from "date-fns";
-import type { HassEntity } from "home-assistant-js-websocket";
+import type { HassConfig, HassEntity } from "home-assistant-js-websocket";
 import type { PropertyValues } from "lit";
 import { css, html, LitElement, nothing } from "lit";
 import { customElement, state } from "lit/decorators";
@@ -13,16 +13,21 @@ import {
 } from "../../../common/decorators/consume-context-entry";
 import { transform } from "../../../common/decorators/transform";
 import type { LocalizeFunc } from "../../../common/translations/localize";
+import { firstWeekdayIndex } from "../../../common/datetime/first_weekday";
 import { createSearchParam } from "../../../common/url/search-params";
 import "../../../components/ha-card";
 import "../../../components/ha-icon-next";
 import "../../../components/ha-tooltip";
-import { apiContext, formattersContext } from "../../../data/context";
 import {
-  getSuggestedPeriod,
-  validateEnergyCollectionKey,
-} from "../../../data/energy";
+  apiContext,
+  configContext,
+  formattersContext,
+  internationalizationContext,
+} from "../../../data/context";
+import { validateEnergyCollectionKey } from "../../../data/energy";
 import { EnergyCollectionController } from "../../../data/energy-collection-controller";
+import type { EnergyGranularity } from "../../../data/energy-granularity";
+import { aggregateStatistics } from "../../../data/energy-granularity";
 import type {
   Statistics,
   StatisticsMetaData,
@@ -36,7 +41,9 @@ import {
 import type {
   HomeAssistant,
   HomeAssistantApi,
+  HomeAssistantConfig,
   HomeAssistantFormatters,
+  HomeAssistantInternationalization,
 } from "../../../types";
 import { findEntities } from "../common/find-entities";
 import { processConfigEntities } from "../common/process-config-entities";
@@ -98,6 +105,8 @@ export class HuiStatisticsGraphCard extends LitElement implements LovelaceCard {
 
   @state() private _energyEnd?: Date;
 
+  @state() private _energyGranularity?: EnergyGranularity;
+
   @state()
   @consumeEntityStates({ entityIdPath: ["_entityIds"] })
   private _stateObjs?: Record<string, HassEntity>;
@@ -117,6 +126,15 @@ export class HuiStatisticsGraphCard extends LitElement implements LovelaceCard {
   @consume({ context: apiContext, subscribe: true })
   private _api!: HomeAssistantApi;
 
+  @consume({ context: internationalizationContext, subscribe: true })
+  private _i18n!: HomeAssistantInternationalization;
+
+  @consume({ context: configContext, subscribe: true })
+  @transform<HomeAssistantConfig, HassConfig>({
+    transformer: ({ config }) => config,
+  })
+  private _hassConfig!: HassConfig;
+
   constructor() {
     super();
     new EnergyCollectionController(this, {
@@ -125,6 +143,7 @@ export class HuiStatisticsGraphCard extends LitElement implements LovelaceCard {
       onData: (data) => {
         this._energyStart = data.start;
         this._energyEnd = data.end;
+        this._energyGranularity = data.granularity;
         this._getStatistics();
       },
     });
@@ -254,6 +273,7 @@ export class HuiStatisticsGraphCard extends LitElement implements LovelaceCard {
     ) {
       this._energyStart = undefined;
       this._energyEnd = undefined;
+      this._energyGranularity = undefined;
       this._setFetchStatisticsTimer();
       return;
     }
@@ -309,8 +329,8 @@ export class HuiStatisticsGraphCard extends LitElement implements LovelaceCard {
   private get _period() {
     const period = this._config?.period;
     const autoMode = period === "auto";
-    return this._energyStart && this._energyEnd && (!period || autoMode)
-      ? getSuggestedPeriod(this._energyStart, this._energyEnd)
+    return this._energyGranularity && (!period || autoMode)
+      ? this._energyGranularity
       : autoMode
         ? undefined
         : period;
@@ -455,15 +475,25 @@ export class HuiStatisticsGraphCard extends LitElement implements LovelaceCard {
           : undefined;
       }
       const unitconfig = unitClass ? { [unitClass]: this._unit } : undefined;
-      const statistics = await fetchStatistics(
+      // Core starts weeks on Monday, so weeks that follow the energy
+      // dashboard's first weekday are combined from days here.
+      const weekStartsOn = firstWeekdayIndex(this._i18n.locale);
+      const clientWeeks =
+        this._period === "week" &&
+        this._energyGranularity === "week" &&
+        weekStartsOn !== 1;
+      const fetched = await fetchStatistics(
         this._api.callWS,
         startDate,
         endDate,
         this._entityIds,
-        this._period,
+        clientWeeks ? "day" : this._period,
         unitconfig,
         this._statTypes
       );
+      const statistics = clientWeeks
+        ? aggregateStatistics(fetched, "week", this._hassConfig, weekStartsOn)
+        : fetched;
 
       this._statistics = {};
       this._entities.forEach((entity) => {

@@ -16,13 +16,14 @@ const computedStyles = createMockComputedStyle({
   "--energy-solar-color": "#ff9800",
   "--primary-text-color": "#212121",
 });
-const { localize, states, formatEntityName } = createMockHass();
+const { localize, states, formatEntityName, config } = createMockHass();
 const baseParams = {
   localize,
   states,
   formatEntityName,
   darkMode: false,
-  timeZone: "UTC",
+  weekStartsOn: 1 as const,
+  config: { ...config, time_zone: "Etc/UTC" },
 };
 
 const solarPrefs = (sources: number, forecast: boolean): EnergyPreferences => {

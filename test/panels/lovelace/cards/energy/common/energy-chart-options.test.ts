@@ -8,6 +8,7 @@ import {
   fillLineGaps,
   formatSeriesTotal,
   generateFillBuckets,
+  getCommonOptions,
   getCompareTransform,
   getPeriodMidpointOffset,
   getSuggestedMax,
@@ -891,6 +892,48 @@ describe("generateFillBuckets", () => {
 });
 
 describe("getCompareTransform", () => {
+  it("shifts compare weeks in the server's time zone", () => {
+    // Los Angeles leaves DST on Nov 1, 2026; the browser runs in UTC.
+    const start = new Date("2026-11-09T00:00:00-08:00");
+    const compareStart = new Date("2026-10-12T00:00:00-07:00");
+    assert.equal(
+      getCompareTransform(
+        start,
+        compareStart,
+        "week",
+        1,
+        "America/Los_Angeles"
+      )(compareStart).getTime(),
+      start.getTime()
+    );
+  });
+
+  it("lines up the first compare week with the first main week", () => {
+    const start = new Date(2026, 8, 1);
+    const compareStart = new Date(2026, 7, 1);
+    // August's first Monday-first week starts Jul 27, September's on Aug 31.
+    // Shifting by a rounded 31 / 7 = 4 weeks put it before the axis.
+    assert.equal(
+      getCompareTransform(
+        start,
+        compareStart,
+        "week",
+        1
+      )(new Date(2026, 6, 27)).getTime(),
+      new Date(2026, 7, 31).getTime()
+    );
+    // With Saturday-first weeks Aug 1 starts a week, as Aug 29 does.
+    assert.equal(
+      getCompareTransform(
+        start,
+        compareStart,
+        "week",
+        6
+      )(new Date(2026, 7, 1)).getTime(),
+      new Date(2026, 7, 29).getTime()
+    );
+  });
+
   it("returns identity transform when no compareStart", () => {
     const start = new Date("2024-03-01");
     const transform = getCompareTransform(start);
@@ -1145,5 +1188,30 @@ describe("formatSeriesTotal", () => {
     };
 
     assert.equal(formatSeriesTotal(series, locale, "kWh"), "60\u00A0kWh");
+  });
+});
+
+describe("getCommonOptions coarse axis", () => {
+  const { locale, config } = createMockHass();
+  const xAxis = (start: Date, end: Date) =>
+    getCommonOptions(start, end, locale, config, "month").xAxis as {
+      axisLabel: { customValues?: number[] };
+      axisTick: { customValues?: number[] };
+    };
+
+  it("places the one tick of a single month", () => {
+    // The mock server is in Los Angeles.
+    const september = new Date("2026-09-01T00:00:00-07:00");
+    const axis = xAxis(september, new Date("2026-09-30T23:59:59.999-07:00"));
+    assert.deepEqual(axis.axisLabel.customValues, [september.getTime()]);
+    assert.deepEqual(axis.axisTick.customValues, [september.getTime()]);
+  });
+
+  it("leaves the ticks of several months to ECharts", () => {
+    const axis = xAxis(
+      new Date("2026-08-01T00:00:00-07:00"),
+      new Date("2026-09-30T23:59:59.999-07:00")
+    );
+    assert.isUndefined(axis.axisLabel.customValues);
   });
 });

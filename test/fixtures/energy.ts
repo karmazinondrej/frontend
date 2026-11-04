@@ -10,6 +10,7 @@ import type {
   EnergyPreferences,
   EnergySource,
 } from "../../src/data/energy";
+import { getSuggestedPeriod } from "../../src/data/energy";
 import { FIXED_EPOCH_MS } from "./history-states";
 import { generateStatistics } from "./statistics";
 
@@ -142,9 +143,13 @@ export const generateEnergyData = (
       })
     : ({} as EnergyData["statsCompare"]);
 
+  const start = new Date(FIXED_EPOCH_MS);
+  const end = new Date(FIXED_EPOCH_MS + days * dayMs);
+
   return {
-    start: new Date(FIXED_EPOCH_MS),
-    end: new Date(FIXED_EPOCH_MS + days * dayMs),
+    start,
+    end,
+    granularity: getSuggestedPeriod(start, end),
     prefs,
     info: { cost_sensors: {}, solar_forecast_domains: [] },
     stats,

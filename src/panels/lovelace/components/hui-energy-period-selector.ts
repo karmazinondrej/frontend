@@ -1,4 +1,5 @@
 import {
+  mdiChartBar,
   mdiCheckboxBlankOutline,
   mdiCheckboxOutline,
   mdiChevronLeft,
@@ -30,6 +31,7 @@ import type { PropertyValues } from "lit";
 import { LitElement, css, html, nothing } from "lit";
 import { customElement, property, query, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
+import { ifDefined } from "lit/directives/if-defined";
 import memoizeOne from "memoize-one";
 import {
   calcDate,
@@ -58,6 +60,7 @@ import type {
 } from "../../../components/date-picker/ha-date-range-picker";
 import "../../../components/ha-button";
 import "../../../components/ha-dropdown";
+import type { HaDropdownSelectEvent } from "../../../components/ha-dropdown";
 import "../../../components/ha-dropdown-item";
 import "../../../components/ha-ripple";
 import "../../../components/ha-spinner";
@@ -75,6 +78,11 @@ import {
   hasCombinableEnergySources,
 } from "../../../data/energy";
 import { EnergyCollectionController } from "../../../data/energy-collection-controller";
+import type { EnergyGranularity } from "../../../data/energy-granularity";
+import {
+  ENERGY_GRANULARITIES,
+  getEnergyGranularityOptions,
+} from "../../../data/energy-granularity";
 import type {
   HomeAssistantConfig,
   HomeAssistantInternationalization,
@@ -149,6 +157,14 @@ export class HuiEnergyPeriodSelector extends LitElement {
   @state() private _ranges: DateRangePickerRanges = {};
 
   @state() private _compare = false;
+
+  @state() private _compareToDate = false;
+
+  /** The bucket size the charts show. */
+  @state() private _granularity?: EnergyGranularity;
+
+  /** The picked bucket size; automatic when not set. */
+  @state() private _pickedGranularity?: EnergyGranularity;
 
   @state() private _combineSources?: boolean;
 
@@ -291,6 +307,17 @@ export class HuiEnergyPeriodSelector extends LitElement {
         action: () => this._toggleCompare(),
       },
       {
+        path: this._compareToDate
+          ? mdiCheckboxOutline
+          : mdiCheckboxBlankOutline,
+        disabled: !this.allowCompare || !this._compare,
+        alwaysCollapse: true,
+        label: this._i18n.localize(
+          "ui.panel.lovelace.components.energy_period_selector.compare_to_date"
+        ),
+        action: () => this._toggleCompareToDate(),
+      },
+      {
         path: this._combineSources
           ? mdiCheckboxOutline
           : mdiCheckboxBlankOutline,
@@ -422,15 +449,29 @@ export class HuiEnergyPeriodSelector extends LitElement {
             <div class="overflow">
               ${
                 !this.narrow
-                  ? html`<ha-button
-                      appearance="filled"
-                      size="s"
-                      @click=${this._pickNow}
-                    >
-                      ${this._i18n.localize(
-                        "ui.panel.lovelace.components.energy_period_selector.now"
-                      )}
-                    </ha-button>`
+                  ? html`<ha-dropdown
+                        @wa-select=${this._granularitySelected}
+                        @click=${stopPropagation}
+                      >
+                        <ha-button
+                          slot="trigger"
+                          appearance="plain"
+                          size="s"
+                          with-caret
+                        >
+                          ${this._granularityLabel(this._granularity)}
+                        </ha-button>
+                        ${this._renderGranularityItems()}
+                      </ha-dropdown>
+                      <ha-button
+                        appearance="filled"
+                        size="s"
+                        @click=${this._pickNow}
+                      >
+                        ${this._i18n.localize(
+                          "ui.panel.lovelace.components.energy_period_selector.now"
+                        )}
+                      </ha-button>`
                   : nothing
               }
               ${buttons.map((item) =>
@@ -447,6 +488,7 @@ export class HuiEnergyPeriodSelector extends LitElement {
                 this._collapseButtons || buttons.some((x) => x.alwaysCollapse)
                   ? html`<ha-dropdown
                       @wa-show=${this._handleIconOverflowMenuOpened}
+                      @wa-select=${this._granularitySelected}
                       @click=${stopPropagation}
                     >
                       <ha-icon-button
@@ -454,6 +496,20 @@ export class HuiEnergyPeriodSelector extends LitElement {
                         .path=${mdiDotsVertical}
                         slot="trigger"
                       ></ha-icon-button>
+                      ${
+                        this.narrow
+                          ? html`<ha-dropdown-item>
+                              <ha-svg-icon
+                                slot="icon"
+                                .path=${mdiChartBar}
+                              ></ha-svg-icon>
+                              ${this._i18n.localize(
+                                "ui.panel.lovelace.components.energy_period_selector.granularity"
+                              )}
+                              ${this._renderGranularityItems("submenu")}
+                            </ha-dropdown-item>`
+                          : nothing
+                      }
                       ${buttons.map((item) =>
                         (this._collapseButtons || item.alwaysCollapse) &&
                         !item.hidden
@@ -476,6 +532,44 @@ export class HuiEnergyPeriodSelector extends LitElement {
           </section>
         </div>
       </div>
+    `;
+  }
+
+  private _granularityLabel(granularity?: EnergyGranularity): string {
+    return granularity
+      ? this._i18n.localize(
+          `ui.panel.lovelace.components.energy_period_selector.granularities.${granularity}`
+        )
+      : this._i18n.localize(
+          "ui.panel.lovelace.components.energy_period_selector.granularity_automatic"
+        );
+  }
+
+  private _renderGranularityItems(slot?: "submenu") {
+    const options = getEnergyGranularityOptions(
+      this._startDate!,
+      this._endDate
+    );
+    return html`
+      <ha-dropdown-item
+        slot=${ifDefined(slot)}
+        value="auto"
+        .selected=${!this._pickedGranularity}
+      >
+        ${this._granularityLabel()}
+      </ha-dropdown-item>
+      ${ENERGY_GRANULARITIES.map(
+        (granularity) => html`
+          <ha-dropdown-item
+            slot=${ifDefined(slot)}
+            .value=${granularity}
+            .selected=${this._pickedGranularity === granularity}
+            ?disabled=${!options.includes(granularity)}
+          >
+            ${this._granularityLabel(granularity)}
+          </ha-dropdown-item>
+        `
+      )}
     `;
   }
 
@@ -764,6 +858,9 @@ export class HuiEnergyPeriodSelector extends LitElement {
     }
     this._loading = false;
     this._compare = energyData.startCompare !== undefined;
+    this._compareToDate = energyData.compareToDate ?? false;
+    this._granularity = energyData.granularity;
+    this._pickedGranularity = this._energyCollection.collection?.granularity;
     this._combineSources = energyData.combineSources;
     this._hasCombinableSources = hasCombinableEnergySources(energyData.prefs);
     this._applyDefaultCombineSources();
@@ -782,6 +879,29 @@ export class HuiEnergyPeriodSelector extends LitElement {
     energyCollection.setCompare(
       this._compare ? CompareMode.PREVIOUS : CompareMode.NONE
     );
+    energyCollection.refresh();
+    this._scheduleLoadingIndicator();
+  }
+
+  private _toggleCompareToDate() {
+    const energyCollection = this._energyCollection.collection;
+    if (!energyCollection) return;
+    this._compareToDate = !this._compareToDate;
+    energyCollection.setCompareToDate(this._compareToDate);
+    energyCollection.refresh();
+    this._scheduleLoadingIndicator();
+  }
+
+  // Shared by the toolbar dropdown and the overflow submenu; the other
+  // overflow items have no value and act on click.
+  private _granularitySelected(
+    ev: HaDropdownSelectEvent<EnergyGranularity | "auto" | undefined>
+  ) {
+    const value = ev.detail.item.value;
+    const energyCollection = this._energyCollection.collection;
+    if (!value || !energyCollection) return;
+    this._pickedGranularity = value === "auto" ? undefined : value;
+    energyCollection.setGranularity(this._pickedGranularity);
     energyCollection.refresh();
     this._scheduleLoadingIndicator();
   }

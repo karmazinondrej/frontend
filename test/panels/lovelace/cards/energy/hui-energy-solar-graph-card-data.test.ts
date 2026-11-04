@@ -23,13 +23,15 @@ const computedStyles = createMockComputedStyle({
   "--primary-text-color": "#212121",
 });
 
-const { localize, states, formatEntityName } = createMockHass();
+const { localize, states, formatEntityName, config } = createMockHass();
 const baseParams = {
   localize,
   states,
   formatEntityName,
   darkMode: false,
-  timeZone: "UTC",
+  weekStartsOn: 1 as const,
+  // The generated statistics are aligned to UTC days.
+  config: { ...config, time_zone: "Etc/UTC" },
 };
 
 const now = new Date(FIXED_EPOCH_MS + dayMs);
@@ -191,6 +193,37 @@ describe("generateEnergySolarGraphData", () => {
         now: new Date(FIXED_EPOCH_MS + 40 * dayMs),
       })
     ).toMatchSnapshot();
+  });
+
+  it("buckets forecasts into the server's weeks", () => {
+    const energyData = generateEnergyData(1, {
+      days: 21,
+      period: "day",
+      prefs: solarPrefs({ forecast: true }),
+    });
+    energyData.granularity = "week";
+    energyData.start = new Date("2026-09-06T21:00:00Z");
+    energyData.end = new Date("2026-09-27T20:59:59.999Z");
+    // Monday 01:00 in Sofia, but still Sunday in UTC.
+    const forecasts: EnergySolarForecasts = {
+      entry_0: { wh_hours: { "2026-09-13T22:00:00.000Z": 2000 } },
+    };
+
+    const result = generateEnergySolarGraphData({
+      ...baseParams,
+      config: { ...config, time_zone: "Europe/Sofia" },
+      energyData,
+      forecasts,
+      computedStyles,
+      now: energyData.end,
+    });
+
+    const forecast = result.chartData.find((series) =>
+      String(series.id).startsWith("forecast-")
+    )!;
+    expect(forecast.data).toEqual([
+      [new Date("2026-09-14T00:00:00+03:00").getTime(), 2],
+    ]);
   });
 
   it("large 5-minute payload digest is stable", () => {

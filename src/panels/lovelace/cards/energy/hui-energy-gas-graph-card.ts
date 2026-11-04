@@ -6,6 +6,7 @@ import { customElement, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
 import memoizeOne from "memoize-one";
 import type { BarSeriesOption } from "echarts/charts";
+import { firstWeekdayIndex } from "../../../../common/datetime/first_weekday";
 import { consume } from "../../../../common/decorators/consume";
 import { transform } from "../../../../common/decorators/transform";
 import {
@@ -29,6 +30,7 @@ import {
   validateEnergyCollectionKey,
 } from "../../../../data/energy";
 import { EnergyCollectionController } from "../../../../data/energy-collection-controller";
+import type { EnergyGranularity } from "../../../../data/energy-granularity";
 import type { FrontendLocaleData } from "../../../../data/translation";
 import type {
   HomeAssistant,
@@ -75,6 +77,8 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
   @state() private _compareStart?: Date;
 
   @state() private _compareEnd?: Date;
+
+  @state() private _granularity: EnergyGranularity = "hour";
 
   @state() private _unit?: string;
 
@@ -236,6 +240,7 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
               this._end,
               this._i18n.locale,
               this._hassConfig,
+              this._granularity,
               this._unit,
               this._compareStart,
               this._compareEnd,
@@ -278,6 +283,7 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
       end: Date,
       locale: FrontendLocaleData,
       config: HassConfig,
+      granularity: EnergyGranularity,
       unit: string | undefined,
       compareStart: Date | undefined,
       compareEnd: Date | undefined,
@@ -288,6 +294,7 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
         end,
         locale,
         config,
+        granularity,
         unit,
         compareStart,
         compareEnd,
@@ -308,6 +315,7 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
       darkMode: this._ui.themes.darkMode,
       energyData,
       computedStyles: getComputedStyle(this),
+      weekStartsOn: firstWeekdayIndex(this._i18n.locale),
       now: endOfToday(),
       timeZone: this._hassConfig.time_zone,
       combinedName:
@@ -322,6 +330,7 @@ export class HuiEnergyGasGraphCard extends LitElement implements LovelaceCard {
     this._end = result.end;
     this._compareStart = result.compareStart;
     this._compareEnd = result.compareEnd;
+    this._granularity = result.granularity;
     this._unit = result.unit;
     this._yAxisFractionDigits = result.yAxisFractionDigits;
     this._chartData = result.chartData;

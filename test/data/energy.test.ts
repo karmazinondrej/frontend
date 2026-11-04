@@ -30,6 +30,7 @@ import {
   computeConsumptionData,
 } from "../../src/data/energy";
 import type {
+  EnergyCollection,
   EnergyData,
   EnergyPreferences,
   EnergySource,
@@ -1855,11 +1856,33 @@ describe("getEnergyDataCollection statistics range", () => {
     vi.useRealTimers();
   });
 
-  const requestStatistics = async (key: string, start: Date, end: Date) => {
+  const dayMs = 24 * 60 * 60 * 1000;
+  // Core returns buckets aligned to the server's (Sofia, UTC+3) days.
+  const solarDays = (count: number, from: string) => {
+    const first = new Date(`${from}T00:00:00+03:00`).getTime();
+    return {
+      "sensor.solar_energy": Array.from({ length: count }, (_, i) => ({
+        start: first + i * dayMs,
+        end: first + (i + 1) * dayMs,
+        change: 1,
+      })),
+    };
+  };
+
+  const loadStatistics = async (
+    key: string,
+    start: Date,
+    end: Date,
+    setup?: (collection: EnergyCollection) => void
+  ) => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date("2026-09-28T12:00:00Z"));
     const hass = createMockHass();
-    hass.locale = { ...energyPeriodLocale, time_zone: TimeZone.local };
+    hass.locale = {
+      ...energyPeriodLocale,
+      time_zone: TimeZone.local,
+      first_weekday: FirstWeekday.monday,
+    };
     hass.config = { ...hass.config, time_zone: "Europe/Sofia" };
     const callWS = vi.fn(async (msg: Record<string, unknown>) => {
       switch (msg.type) {
@@ -1868,7 +1891,9 @@ describe("getEnergyDataCollection statistics range", () => {
         case "recorder/get_statistics_metadata":
           return [];
         case "recorder/statistics_during_period":
-          return {};
+          return msg.period === "day"
+            ? solarDays(3, (msg.start_time as string).slice(0, 10))
+            : {};
       }
       throw new Error(`unexpected ${msg.type}`);
     });
@@ -1900,11 +1925,18 @@ describe("getEnergyDataCollection statistics range", () => {
       },
     });
     collection.setPeriod(start, end);
+    setup?.(collection);
     await collection.refresh();
-    return callWS.mock.calls
-      .map(([msg]) => msg)
-      .find((msg) => msg.type === "recorder/statistics_during_period");
+    return {
+      data: collection.state!,
+      requests: callWS.mock.calls
+        .map(([msg]) => msg)
+        .filter((msg) => msg.type === "recorder/statistics_during_period"),
+    };
   };
+
+  const requestStatistics = async (key: string, start: Date, end: Date) =>
+    (await loadStatistics(key, start, end)).requests[0];
 
   it("requests the picked days in the server time zone", async () => {
     const request = await requestStatistics(
@@ -1928,6 +1960,85 @@ describe("getEnergyDataCollection statistics range", () => {
       start_time: start.toISOString(),
       end_time: end.toISOString(),
     });
+  });
+
+  it("fetches days for weekly buckets and sums them client-side", async () => {
+    const { data, requests } = await loadStatistics(
+      "energy_range_weeks",
+      new Date(2026, 8, 1),
+      endOfDay(new Date(2026, 8, 30)),
+      (collection) => collection.setGranularity("week")
+    );
+    assert.equal(requests[0].period, "day");
+    assert.equal(data.granularity, "week");
+    // The request starts on Aug 31 in Sofia (Mon); that day, Sep 1 and Sep 2
+    // all land in the week of Monday Aug 31.
+    assert.deepEqual(data.stats["sensor.solar_energy"], [
+      {
+        start: new Date("2026-08-31T00:00:00+03:00").getTime(),
+        end: new Date("2026-09-07T00:00:00+03:00").getTime(),
+        change: 3,
+      },
+    ]);
+  });
+
+  it("ignores a picked bucket size that does not fit the period", async () => {
+    const { data, requests } = await loadStatistics(
+      "energy_range_day_year",
+      new Date(2026, 8, 18),
+      endOfDay(new Date(2026, 8, 18)),
+      (collection) => collection.setGranularity("year")
+    );
+    assert.equal(requests[0].period, "hour");
+    assert.equal(data.granularity, "hour");
+  });
+
+  it("caps the comparison at the same point of the previous period", async () => {
+    const { data, requests } = await loadStatistics(
+      "energy_range_to_date",
+      new Date(2026, 8, 1),
+      endOfDay(new Date(2026, 8, 30)),
+      (collection) => {
+        collection.setCompare(CompareMode.PREVIOUS);
+        collection.setCompareToDate(true);
+      }
+    );
+    assert.equal(data.startCompare!.getTime(), new Date(2026, 7, 1).getTime());
+    assert.equal(
+      data.endCompare!.getTime(),
+      new Date("2026-08-28T12:00:00Z").getTime()
+    );
+    // The comparison runs as long as the current period has (since Sep 1 in
+    // Sofia): whole days, then the cut-off day hourly so it is not widened.
+    assert.deepEqual(
+      requests
+        .slice(1)
+        .map(({ period, start_time, end_time }) => [
+          period,
+          start_time,
+          end_time,
+        ]),
+      [
+        ["day", "2026-07-31T21:00:00.000Z", "2026-08-27T20:59:59.999Z"],
+        ["hour", "2026-08-27T21:00:00.000Z", "2026-08-28T12:00:00.000Z"],
+      ]
+    );
+  });
+
+  it("compares whole periods that already ended", async () => {
+    const { data } = await loadStatistics(
+      "energy_range_to_date_past",
+      new Date(2026, 7, 1),
+      endOfDay(new Date(2026, 7, 31)),
+      (collection) => {
+        collection.setCompare(CompareMode.PREVIOUS);
+        collection.setCompareToDate(true);
+      }
+    );
+    assert.equal(
+      data.endCompare!.getTime(),
+      new Date(2026, 7, 1).getTime() - 1
+    );
   });
 });
 

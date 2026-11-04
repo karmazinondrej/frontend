@@ -6,6 +6,7 @@ import { customElement, state } from "lit/decorators";
 import { classMap } from "lit/directives/class-map";
 import memoizeOne from "memoize-one";
 import type { BarSeriesOption, LineSeriesOption } from "echarts/charts";
+import { firstWeekdayIndex } from "../../../../common/datetime/first_weekday";
 import { consume } from "../../../../common/decorators/consume";
 import { transform } from "../../../../common/decorators/transform";
 import {
@@ -32,6 +33,7 @@ import {
   validateEnergyCollectionKey,
 } from "../../../../data/energy";
 import { EnergyCollectionController } from "../../../../data/energy-collection-controller";
+import type { EnergyGranularity } from "../../../../data/energy-granularity";
 import type { FrontendLocaleData } from "../../../../data/translation";
 import type {
   HomeAssistant,
@@ -82,6 +84,8 @@ export class HuiEnergySolarGraphCard
   @state() private _compareStart?: Date;
 
   @state() private _compareEnd?: Date;
+
+  @state() private _granularity: EnergyGranularity = "hour";
 
   @state() private _total?: number;
 
@@ -179,6 +183,7 @@ export class HuiEnergySolarGraphCard
               this._end,
               this._i18n.locale,
               this._hassConfig,
+              this._granularity,
               this._compareStart,
               this._compareEnd,
               this._yAxisFractionDigits
@@ -217,6 +222,7 @@ export class HuiEnergySolarGraphCard
       end: Date,
       locale: FrontendLocaleData,
       config: HassConfig,
+      granularity: EnergyGranularity,
       compareStart: Date | undefined,
       compareEnd: Date | undefined,
       yAxisFractionDigits: number
@@ -226,6 +232,7 @@ export class HuiEnergySolarGraphCard
         end,
         locale,
         config,
+        granularity,
         "kWh",
         compareStart,
         compareEnd,
@@ -279,7 +286,8 @@ export class HuiEnergySolarGraphCard
       forecasts,
       computedStyles: getComputedStyle(this),
       now: endOfToday(),
-      timeZone: this._hassConfig.time_zone,
+      weekStartsOn: firstWeekdayIndex(this._i18n.locale),
+      config: this._hassConfig,
       combineSources:
         this._config.combine_sources ?? energyData.combineSources ?? false,
     });
@@ -288,6 +296,7 @@ export class HuiEnergySolarGraphCard
     this._end = result.end;
     this._compareStart = result.compareStart;
     this._compareEnd = result.compareEnd;
+    this._granularity = result.granularity;
     this._yAxisFractionDigits = result.yAxisFractionDigits;
     this._chartData = result.chartData;
     this._total = result.total;

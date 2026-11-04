@@ -16,7 +16,8 @@ export interface RecorderInfo {
 
 export type StatisticType = "change" | "state" | "sum" | "min" | "max" | "mean";
 
-export type StatisticPeriod = "5minute" | "hour" | "day" | "week" | "month";
+export type StatisticPeriod =
+  "5minute" | "hour" | "day" | "week" | "month" | "year";
 
 export type Statistics = Record<string, StatisticValue[]>;
 

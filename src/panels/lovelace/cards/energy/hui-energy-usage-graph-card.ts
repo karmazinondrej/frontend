@@ -7,6 +7,7 @@ import { classMap } from "lit/directives/class-map";
 import memoizeOne from "memoize-one";
 import type { BarSeriesOption } from "echarts/charts";
 import type { TopLevelFormatterParams } from "echarts/types/dist/shared";
+import { firstWeekdayIndex } from "../../../../common/datetime/first_weekday";
 import { getEnergyColor } from "./common/color";
 import { sumEnergyStatistics } from "./common/sum-statistics";
 import { consume } from "../../../../common/decorators/consume";
@@ -32,11 +33,11 @@ import type {
 import {
   computeConsumptionData,
   energySourcesByType,
-  getSuggestedPeriod,
   getSummedData,
   validateEnergyCollectionKey,
 } from "../../../../data/energy";
 import { EnergyCollectionController } from "../../../../data/energy-collection-controller";
+import type { EnergyGranularity } from "../../../../data/energy-granularity";
 import type { Statistics, StatisticsMetaData } from "../../../../data/recorder";
 import { getStatisticLabel } from "../../../../data/recorder";
 import type { FrontendLocaleData } from "../../../../data/translation";
@@ -118,6 +119,8 @@ export class HuiEnergyUsageGraphCard
   @state() private _compareStart?: Date;
 
   @state() private _compareEnd?: Date;
+
+  @state() private _granularity: EnergyGranularity = "hour";
 
   @state() private _total?: number;
 
@@ -209,6 +212,7 @@ export class HuiEnergyUsageGraphCard
               this._end,
               this._i18n.locale,
               this._hassConfig,
+              this._granularity,
               this._compareStart,
               this._compareEnd,
               this._yAxisFractionDigits,
@@ -249,6 +253,7 @@ export class HuiEnergyUsageGraphCard
       end: Date,
       locale: FrontendLocaleData,
       config: HassConfig,
+      granularity: EnergyGranularity,
       compareStart: Date | undefined,
       compareEnd: Date | undefined,
       yAxisFractionDigits: number,
@@ -259,6 +264,7 @@ export class HuiEnergyUsageGraphCard
         end,
         locale,
         config,
+        granularity,
         "kWh",
         compareStart,
         compareEnd,
@@ -499,6 +505,7 @@ export class HuiEnergyUsageGraphCard
 
     this._compareStart = energyData.startCompare;
     this._compareEnd = energyData.endCompare;
+    this._granularity = energyData.granularity;
 
     const { summedData, compareSummedData } = getSummedData(energyData);
     const { consumption, compareConsumption } = computeConsumptionData(
@@ -562,7 +569,7 @@ export class HuiEnergyUsageGraphCard
         datasets,
         this._start,
         this._end,
-        getSuggestedPeriod(this._start, this._end),
+        this._granularity,
         this._hassConfig.time_zone
       )
     );
@@ -754,15 +761,17 @@ export class HuiEnergyUsageGraphCard
     // Only start timestamps available here, so center sub-daily bars from the
     // gap between the first two entries, clamped to the nominal period so
     // sparse or lone buckets stay centered on the same grid as dense data.
-    const period = getSuggestedPeriod(this._start, this._end);
     const periodOffset = getPeriodMidpointOffset(
-      period,
+      this._granularity,
       uniqueKeys.length >= 2 ? uniqueKeys[1] - uniqueKeys[0] : undefined
     );
 
     const compareTransform = getCompareTransform(
       this._start,
-      this._compareStart!
+      this._compareStart!,
+      this._granularity,
+      firstWeekdayIndex(this._i18n.locale),
+      this._hassConfig.time_zone
     );
 
     Object.entries(combinedData).forEach(([type, sources]) => {

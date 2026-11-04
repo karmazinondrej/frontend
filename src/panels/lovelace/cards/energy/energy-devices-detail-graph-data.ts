@@ -1,6 +1,8 @@
 import type { BarSeriesOption } from "echarts/charts";
 import type { CallbackDataParams } from "echarts/types/dist/shared";
 import type { HassEntities } from "home-assistant-js-websocket";
+import { firstWeekdayIndex } from "../../../../common/datetime/first_weekday";
+import type { WeekdayIndex } from "../../../../common/datetime/weekday";
 import { getGraphColorByIndex } from "../../../../common/color/colors";
 import type { LocalizeFunc } from "../../../../common/translations/localize";
 import { computeYAxisFractionDigits } from "../../../../components/chart/y-axis-fraction-digits";
@@ -12,9 +14,9 @@ import type {
 import {
   computeConsumptionData,
   computeEnergyDeviceLabels,
-  getSuggestedPeriod,
   getSummedData,
 } from "../../../../data/energy";
+import type { EnergyGranularity } from "../../../../data/energy-granularity";
 import type { Statistics } from "../../../../data/recorder";
 import {
   calculateStatisticSumGrowth,
@@ -46,7 +48,7 @@ export interface EnergyDevicesDetailGraphDataParams {
   config: EnergyDevicesDetailGraphCardConfig;
   computedStyles: CSSStyleDeclaration;
   now: Date;
-  /** Server time zone, which core aligns day and month buckets to. */
+  /** Server time zone, which core aligns buckets to and comparisons shift in. */
   timeZone: string;
   /**
    * Numeric suffix appended to the untracked dataset's series id so it always
@@ -65,6 +67,7 @@ export interface EnergyDevicesDetailGraphData {
   end: Date;
   compareStart?: Date;
   compareEnd?: Date;
+  granularity: EnergyGranularity;
 }
 
 const getStatIdFromId = (id: string): string =>
@@ -79,6 +82,9 @@ interface ProcessContext {
   start: Date;
   end: Date;
   compareStart?: Date;
+  granularity: EnergyGranularity;
+  weekStartsOn: WeekdayIndex;
+  timeZone: string;
   untrackedOrder: number;
   deviceLabels: Record<string, string>;
 }
@@ -94,8 +100,14 @@ function processDataSet(
   compare = false
 ) {
   const data: BarSeriesOption[] = [];
-  const compareTransform = getCompareTransform(ctx.start, ctx.compareStart!);
-  const period = getSuggestedPeriod(ctx.start, ctx.end);
+  const period = ctx.granularity;
+  const compareTransform = getCompareTransform(
+    ctx.start,
+    ctx.compareStart!,
+    period,
+    ctx.weekStartsOn,
+    ctx.timeZone
+  );
 
   // Lazily memoize a start -> change lookup per child stat so the per-point
   // child summation is O(1) instead of a linear `.find` scan. Mirrors the
@@ -229,8 +241,14 @@ function processUntracked(
         (totalDeviceConsumption[datapoint[2]] || 0) + datapoint[1];
     });
   });
-  const compareTransform = getCompareTransform(ctx.start, ctx.compareStart!);
-  const period = getSuggestedPeriod(ctx.start, ctx.end);
+  const period = ctx.granularity;
+  const compareTransform = getCompareTransform(
+    ctx.start,
+    ctx.compareStart!,
+    period,
+    ctx.weekStartsOn,
+    ctx.timeZone
+  );
 
   // Split untracked into its positive part (genuine untracked consumption) and
   // its negative part (tracked devices over-reporting relative to the meter).
@@ -350,6 +368,7 @@ export function generateEnergyDevicesDetailGraphData(
   const {
     localize,
     locale,
+    timeZone,
     states,
     formatEntityName,
     darkMode,
@@ -378,6 +397,9 @@ export function generateEnergyDevicesDetailGraphData(
     start,
     end,
     compareStart,
+    granularity: energyData.granularity,
+    weekStartsOn: firstWeekdayIndex(locale),
+    timeZone,
     untrackedOrder,
     deviceLabels: computeEnergyDeviceLabels(
       states,
@@ -548,7 +570,7 @@ export function generateEnergyDevicesDetailGraphData(
       datasets,
       start,
       end,
-      getSuggestedPeriod(start, end),
+      energyData.granularity,
       params.timeZone
     )
   );
@@ -562,6 +584,7 @@ export function generateEnergyDevicesDetailGraphData(
     end,
     compareStart,
     compareEnd,
+    granularity: energyData.granularity,
   };
 }
 

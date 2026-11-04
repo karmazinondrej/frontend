@@ -1,12 +1,13 @@
 import type { BarSeriesOption } from "echarts/charts";
 import type { HassEntities } from "home-assistant-js-websocket";
+import type { WeekdayIndex } from "../../../../common/datetime/weekday";
 import { computeYAxisFractionDigits } from "../../../../components/chart/y-axis-fraction-digits";
 import { fillDataGapsAndRoundCaps } from "../../../../components/chart/round-caps";
 import type {
   EnergyData,
   GasSourceTypeEnergyPreference,
 } from "../../../../data/energy";
-import { getSuggestedPeriod } from "../../../../data/energy";
+import type { EnergyGranularity } from "../../../../data/energy-granularity";
 import type { Statistics, StatisticsMetaData } from "../../../../data/recorder";
 import { getStatisticLabel } from "../../../../data/recorder";
 import type { HomeAssistant } from "../../../../types";
@@ -24,9 +25,11 @@ export interface EnergyGasGraphDataParams {
   darkMode: boolean;
   energyData: EnergyData;
   computedStyles: CSSStyleDeclaration;
+  /** First day of the week the compare period is aligned by. */
+  weekStartsOn?: WeekdayIndex;
   /** Current time, injected so the transform is deterministic. */
   now: Date;
-  /** Server time zone, which core aligns day and month buckets to. */
+  /** Server time zone, which core aligns buckets to and comparisons shift in. */
   timeZone: string;
   /** Sums all gas sources into one series with this name. */
   combinedName?: string;
@@ -43,6 +46,7 @@ export interface EnergyGasGraphData {
   end: Date;
   compareStart?: Date;
   compareEnd?: Date;
+  granularity: EnergyGranularity;
   unit?: string;
   total?: number;
   yAxisFractionDigits: number;
@@ -94,8 +98,14 @@ export function generateEnergyGasGraphData(
   // which are identical for both the compare and main passes. Compute them
   // once here instead of recomputing (and re-allocating the transform
   // closure) inside each processDataSet call.
-  const compareTransform = getCompareTransform(start, compareStart!);
-  const period = getSuggestedPeriod(start, end);
+  const period = energyData.granularity;
+  const compareTransform = getCompareTransform(
+    start,
+    compareStart!,
+    period,
+    params.weekStartsOn,
+    params.timeZone
+  );
 
   if (energyData.statsCompare) {
     datasets.push(
@@ -151,6 +161,7 @@ export function generateEnergyGasGraphData(
     end,
     compareStart,
     compareEnd,
+    granularity: period,
     unit,
     total,
     yAxisFractionDigits,
@@ -177,7 +188,7 @@ function processTotal(
 function processDataSet(
   { states, formatEntityName, darkMode }: EnergyGasGraphDataParams,
   compareTransform: (ts: Date) => Date,
-  period: ReturnType<typeof getSuggestedPeriod>,
+  period: EnergyGranularity,
   statistics: Statistics,
   statisticsMetaData: Record<string, StatisticsMetaData>,
   gasSources: GasChartSource[],
@@ -194,7 +205,7 @@ function processDataSet(
   // `center` recompute and a per-point `compare ? … : undefined` ternary in the
   // hottest loop. The arithmetic and addition order are kept identical so the
   // resulting timestamps are bit-identical to computeStatMidpoint.
-  const center = period === "hour" || period === "5minute";
+  const center = period === "hour";
   const transform = compare ? compareTransform : undefined;
 
   gasSources.forEach((source, idx) => {
