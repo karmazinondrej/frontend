@@ -1,0 +1,22 @@
+const { chromium } = require("playwright");
+const path = require("path");
+const out = (n) => path.join(__dirname, n);
+(async () => {
+  const browser = await chromium.launch();
+  const page = await browser.newPage({ viewport: { width: 1280, height: 1000 }, timezoneId: "America/Los_Angeles" });
+  await page.goto("http://localhost:8090/", { waitUntil: "load" });
+  await page.waitForTimeout(5000);
+  await page.locator("#sidebar-panel-energy").first().click();
+  await page.waitForTimeout(6000);
+  const selector = page.locator("hui-energy-period-selector").first();
+  await selector.locator("ha-date-range-picker").first().click(); await page.waitForTimeout(800);
+  await page.getByText("This month", { exact: true }).first().click(); await page.waitForTimeout(4000);
+  const overflow = selector.locator("ha-dropdown ha-icon-button[slot=trigger]").first();
+  await overflow.click(); await page.waitForTimeout(500);
+  await selector.locator("ha-dropdown-item", { hasText: "Compare data" }).first().click(); await page.waitForTimeout(4000);
+  await overflow.click(); await page.waitForTimeout(500);
+  await selector.locator("ha-dropdown-item", { hasText: "Compare to date" }).first().click(); await page.waitForTimeout(4000);
+  await overflow.click(); await page.waitForTimeout(600);
+  await page.screenshot({ path: out("compare-to-date-menu.png") });
+  await browser.close();
+})();
