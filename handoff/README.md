@@ -18,7 +18,7 @@ also the **merge check**: `dev` + all three frontend feature branches merged tog
 git clone https://github.com/karmazinondrej/frontend.git && cd frontend
 git remote add upstream https://github.com/home-assistant/frontend.git
 git fetch origin && git fetch upstream dev
-git switch energy-fill-buckets-time-zone && git switch energy-chart-granularity && git switch energy-gas-outdoor-temperature
+git switch fix-energy-thin-bars && git switch energy-chart-granularity && git switch energy-gas-outdoor-temperature
 git switch -c merge-check origin/claude/sleepy-clarke-yy01zk   # integration branch + this folder
 script/bootstrap   # installs the pnpm dependencies (Node from .nvmrc)
 ```
@@ -43,7 +43,7 @@ Checks:
 
 | Repo | Branch | Head | Content | Last verified |
 |---|---|---|---|---|
-| frontend | `energy-fill-buckets-time-zone` | 38f04c5 | Bug fix: zero-fill grid stepped in browser TZ → thin bars when browser and server zones change DST on different dates. Independent. | tests green |
+| frontend | `fix-energy-thin-bars` | fd5b130 | Bug fix: zero-fill grid stepped in browser TZ → thin bars when browser and server zones change DST on different dates. Independent. Rebased on upstream `dev` 5cfdff0, one commit authored by karmazinondrej, no AI trailers. Replaces `energy-fill-buckets-time-zone` (38f04c5), which can be deleted. | 1873 tests green, verified in demo (UTC vs LA) |
 | core | `energy-gas-outdoor-temperature` | d170106e | Gas source keys `stat_outdoor_temperature`, `heating_base_temperature` (°C, 0–30), validation + repair issue string, tests. Must merge before the frontend temperature PR. | 270 energy tests, prek green |
 | frontend | `energy-gas-outdoor-temperature` | 069e4ee | Gas dialog fields; temperature line on a second y-axis (compare dashed); heating degree days from daily means (chip + tooltip); CSV rows `outdoor_temperature`, `heating_degree_days` (unit names the base). | 299 energy tests green |
 | frontend | `energy-chart-granularity` | 958811a | Granularity picker (auto/hour/day/week/month/year), weeks by first weekday, partial edges fetched hourly, compare by whole buckets in server TZ, "Compare to date", solar forecast bucketing, statistics card weeks, one-month axis tick. | 1870 tests green |
@@ -58,7 +58,7 @@ Stale remote branches in the frontend fork to delete yourself (they predate the 
 
 ## Submission order and rules
 
-1. frontend `energy-fill-buckets-time-zone` → PR to `home-assistant/frontend:dev` (Bugfix). Text: `pr/1-fill-buckets-time-zone.md`.
+1. frontend `fix-energy-thin-bars` → PR to `home-assistant/frontend:dev` (Bugfix). Shorter draft: `PR-fill-fix-draft.md` style (template, own words); `pr/1-fill-buckets-time-zone.md` is the longer older version.
 2. core `energy-gas-outdoor-temperature` → PR to `home-assistant/core:dev` (New feature). Text: `pr/2-gas-temperature-core.md`.
    Then frontend `energy-gas-outdoor-temperature` (New feature, link the core PR; likely labelled "waiting for upstream").
    Text: `pr/3-gas-temperature-frontend.md`. Docs PR in home-assistant.io: gas source outdoor temperature + degree days.
